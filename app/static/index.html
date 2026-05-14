@@ -467,7 +467,7 @@
   <div class="logo-mark">TTB</div>
   <div class="logo-text">Label Verifier <span class="logo-sub">Compliance Review System</span></div>
   <div class="spacer"></div>
-  <span class="badge" id="modelBadge">claude-opus-4-5</span>
+  <span class="badge" id="modelBadge">claude-haiku-4-5-20251001</span>
 </header>
 
 <main>
@@ -512,10 +512,10 @@
         <div class="form-group">
           <label>Backend Model</label>
           <select id="modelSelect">
-            <option value="claude-opus-4-5">claude-opus-4-5 (Default)</option>
+            <option value="claude-haiku-4-5-20251001">claude-haiku-4-5 (Default)</option>
             <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
+            <option value="claude-opus-4-5">claude-opus-4-5</option>
             <option value="claude-opus-4-7">claude-opus-4-7</option>
-            <option value="claude-haiku-4-5-20251001">claude-haiku-4-5</option>
           </select>
           <div class="field-hint">Model used for label field extraction</div>
         </div>
@@ -648,6 +648,7 @@
 
     <div class="actions">
       <button class="btn btn-ghost" id="btnStartOver">Start New Batch</button>
+      <button class="btn btn-ghost" id="btnExportCsv" style="display:none">↓ Export CSV</button>
     </div>
   </div>
 
@@ -663,7 +664,7 @@ let isBulk = false;
 let govWarningCanonical = '';
 let sessionId = crypto.randomUUID();
 let lastResults = [];
-let selectedModel = 'claude-opus-4-5';
+let selectedModel = 'claude-haiku-4-5-20251001';
 let showImage = false;
 let predictionOnly = false;
 
@@ -859,7 +860,7 @@ document.getElementById('btnSingleVerify').addEventListener('click', async () =>
     const data = await res.json();
     if (!res.ok) throw new Error(JSON.stringify(data.detail || data));
     lastResults = [data];
-    renderResults([data], {});
+    renderResults([data], { total_time_ms: data.processing_time_ms });
     showStep('step-results');
   } catch (e) {
     alert('Verification error: ' + e.message);
@@ -920,7 +921,7 @@ async function runPrediction() {
       const data = await res.json();
       if (!res.ok) throw new Error(JSON.stringify(data.detail || data));
       lastResults = [data];
-      renderResults([data], {});
+      renderResults([data], { total_time_ms: data.processing_time_ms });
     } else {
       const fd = new FormData();
       uploadedFiles.forEach(f => fd.append('images', f));
@@ -930,7 +931,8 @@ async function runPrediction() {
       if (!res.ok) throw new Error(JSON.stringify(data.detail || data));
       lastResults = data.results;
       renderResults(data.results, {
-        passed: data.passed, warnings: data.warnings, failed: data.failed
+        passed: data.passed, warnings: data.warnings, failed: data.failed,
+        total_time_ms: data.total_time_ms,
       });
     }
     showStep('step-results');
@@ -966,7 +968,8 @@ async function runBatchVerification() {
     }
     lastResults = data.results;
     renderResults(data.results, {
-      passed: data.passed, warnings: data.warnings, failed: data.failed
+      passed: data.passed, warnings: data.warnings, failed: data.failed,
+      total_time_ms: data.total_time_ms,
     });
     showStep('step-results');
   } catch (e) {
@@ -982,9 +985,16 @@ function statusIcon(s) {
   return s === 'pass' ? '✓' : s === 'warning' ? '⚠' : '✕';
 }
 
+function formatMs(ms) {
+  if (ms == null) return null;
+  return ms >= 1000 ? `${(ms / 1000).toFixed(2)}s` : `${Math.round(ms)}ms`;
+}
+
 function renderResults(results, summary) {
   const subtitle = document.getElementById('resultsSubtitle');
-  subtitle.textContent = `${results.length} label${results.length !== 1 ? 's' : ''} processed`;
+  const totalTime = formatMs(summary.total_time_ms ?? null);
+  subtitle.textContent = `${results.length} label${results.length !== 1 ? 's' : ''} processed`
+    + (totalTime ? ` · ${totalTime} total` : '');
 
   const pills = document.getElementById('summaryPills');
   const isPrediction = results.length > 0 && results[0].prediction_only;
@@ -1015,6 +1025,8 @@ function renderResults(results, summary) {
       card.querySelector('.card-chevron').classList.add('open');
     }
   });
+
+  document.getElementById('btnExportCsv').style.display = isPrediction ? '' : 'none';
 }
 
 function buildResultCard(result) {
@@ -1086,10 +1098,13 @@ function buildResultCard(result) {
   // Metadata footer
   const meta = document.createElement('div');
   meta.className = 'card-meta';
+  const imgTime = formatMs(result.processing_time_ms ?? null);
   meta.innerHTML = `
     <div class="meta-item">model: <span>${result.model_used}</span></div>
     <div class="meta-item">prompt: <span>${result.prompt_version}</span></div>
     ${result.prediction_only ? '<div class="meta-item">mode: <span>prediction only</span></div>' : ''}
+    <div class="meta-item">source: <span style="color:${result.cache_hit ? 'var(--warn)' : 'inherit'}">${result.cache_hit ? 'cached' : 'live'}</span></div>
+    ${imgTime ? `<div class="meta-item">time: <span>${imgTime}</span></div>` : ''}
     <div class="meta-item">at: <span>${new Date(result.timestamp).toLocaleString()}</span></div>`;
 
   card.appendChild(header);
@@ -1231,6 +1246,40 @@ async function submitReview(result, btn, statusMsg) {
     btn.disabled = false;
     alert('Failed to submit review: ' + e.message);
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Prediction CSV export
+// ═══════════════════════════════════════════════════════════════════════
+document.getElementById('btnExportCsv').addEventListener('click', exportPredictionCsv);
+
+function exportPredictionCsv() {
+  const columns = [
+    'filename', 'brand_name', 'class_type', 'abv', 'net_contents',
+    'bottler_name', 'bottler_address', 'country_of_origin', 'government_warning',
+  ];
+
+  const escape = v => {
+    const s = v == null ? '' : String(v);
+    return s.includes(',') || s.includes('"') || s.includes('\n')
+      ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+
+  const rows = [columns.join(',')];
+
+  lastResults.forEach(result => {
+    const byField = {};
+    result.fields.forEach(f => { byField[f.field] = f.extracted_value ?? ''; });
+    rows.push(columns.map(col => escape(col === 'filename' ? result.image_filename : byField[col])).join(','));
+  });
+
+  const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `prediction_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 // ═══════════════════════════════════════════════════════════════════════

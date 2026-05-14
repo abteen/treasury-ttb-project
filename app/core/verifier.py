@@ -3,8 +3,10 @@ Verification orchestrator.
 Compares vision-extracted label fields against application data
 and produces structured per-field verdicts.
 """
+import hashlib
 import logging
 import re
+import time
 import unicodedata
 from datetime import datetime
 
@@ -17,9 +19,12 @@ from app.core.constants import (
     GOVERNMENT_WARNING_CANONICAL,
 )
 from app.core.prompts.registry import get_prompt
+from app.core.response_cache import get_cached_extract, save_cached_extract
 from app.core.vision import VisionClient
+from app.models.audit import PredictionFieldResult, PredictionLog
 from app.models.label import ApplicationData
 from app.models.result import BatchVerificationResponse, FieldVerdict, VerificationResult
+from app.services.audit_logger import log_prediction
 
 logger = logging.getLogger(__name__)
 
@@ -198,21 +203,30 @@ def verify_label(
     """
     Run extraction + verification for a single label image.
     """
+    t_start = time.perf_counter()
     prompt_text, resolved_version = get_prompt("extract", prompt_version)
 
-    try:
-        extracted = client.extract_fields(image_bytes, prompt_text, media_type)
-    except Exception as exc:
-        logger.exception("Vision extraction failed for %s", application.filename)
-        return VerificationResult(
-            image_filename=application.filename,
-            overall_status="fail",
-            fields=[],
-            model_used=client.model_name,
-            prompt_version=resolved_version,
-            timestamp=datetime.utcnow(),
-            error=f"Extraction failed: {exc}",
-        )
+    cached = get_cached_extract(application.filename, client.model_name, resolved_version)
+    if cached is not None:
+        extracted, _raw = cached
+        cache_hit = True
+    else:
+        try:
+            extracted, _raw = client.extract_fields(image_bytes, prompt_text, media_type)
+        except Exception as exc:
+            logger.exception("Vision extraction failed for %s", application.filename)
+            return VerificationResult(
+                image_filename=application.filename,
+                overall_status="fail",
+                fields=[],
+                model_used=client.model_name,
+                prompt_version=resolved_version,
+                timestamp=datetime.utcnow(),
+                error=f"Extraction failed: {exc}",
+                processing_time_ms=(time.perf_counter() - t_start) * 1000,
+            )
+        cache_hit = False
+        save_cached_extract(application.filename, client.model_name, resolved_version, _raw)
 
     all_fields = TTB_REQUIRED_FIELDS + [f for f in TTB_OPTIONAL_FIELDS if getattr(application, f, None)]
     app_dict = application.model_dump()
@@ -229,6 +243,8 @@ def verify_label(
         model_used=client.model_name,
         prompt_version=resolved_version,
         timestamp=datetime.utcnow(),
+        cache_hit=cache_hit,
+        processing_time_ms=(time.perf_counter() - t_start) * 1000,
     )
 
 
@@ -240,22 +256,45 @@ def predict_label(
     prompt_version: str = "latest",
 ) -> VerificationResult:
     """Extract fields from a label image without comparing against application data."""
+    t_start = time.perf_counter()
     prompt_text, resolved_version = get_prompt("extract", prompt_version)
 
-    try:
-        extracted = client.extract_fields(image_bytes, prompt_text, media_type)
-    except Exception as exc:
-        logger.exception("Vision extraction failed for %s", filename)
-        return VerificationResult(
-            image_filename=filename,
-            overall_status="fail",
-            fields=[],
-            model_used=client.model_name,
-            prompt_version=resolved_version,
-            timestamp=datetime.utcnow(),
-            error=f"Extraction failed: {exc}",
-            prediction_only=True,
-        )
+    image_hash = hashlib.sha256(image_bytes).hexdigest()
+
+    cached = get_cached_extract(filename, client.model_name, resolved_version)
+    if cached is not None:
+        extracted, raw_output = cached
+        cache_hit = True
+    else:
+        try:
+            extracted, raw_output = client.extract_fields(image_bytes, prompt_text, media_type)
+        except Exception as exc:
+            logger.exception("Vision extraction failed for %s", filename)
+            elapsed_ms = (time.perf_counter() - t_start) * 1000
+            log_prediction(PredictionLog(
+                image_filename=filename,
+                image_hash=image_hash,
+                model_used=client.model_name,
+                prompt_version=resolved_version,
+                raw_prompt=prompt_text,
+                raw_model_output=str(exc),
+                fields=[],
+                cache_hit=False,
+            ))
+            return VerificationResult(
+                image_filename=filename,
+                overall_status="fail",
+                fields=[],
+                model_used=client.model_name,
+                prompt_version=resolved_version,
+                timestamp=datetime.utcnow(),
+                error=f"Extraction failed: {exc}",
+                prediction_only=True,
+                cache_hit=False,
+                processing_time_ms=elapsed_ms,
+            )
+        cache_hit = False
+        save_cached_extract(filename, client.model_name, resolved_version, raw_output)
 
     verdicts = []
     for field in TTB_REQUIRED_FIELDS:
@@ -271,14 +310,33 @@ def predict_label(
                                          status="warning", note="Field not detected on label."))
 
     for field in TTB_OPTIONAL_FIELDS:
+        label = FIELD_LABELS.get(field, field.replace("_", " ").title())
         val = extracted.get(field)
         if val is not None:
-            label = FIELD_LABELS.get(field, field.replace("_", " ").title())
             verdicts.append(FieldVerdict(field=field, field_label=label,
                                          extracted_value=val.strip(), application_value="",
                                          status="pass"))
 
     overall = "warning" if any(v.status == "warning" for v in verdicts) else "pass"
+
+    log_prediction(PredictionLog(
+        image_filename=filename,
+        image_hash=image_hash,
+        model_used=client.model_name,
+        prompt_version=resolved_version,
+        raw_prompt=prompt_text,
+        raw_model_output=raw_output,
+        fields=[
+            PredictionFieldResult(
+                field=v.field,
+                field_label=v.field_label,
+                extracted_value=v.extracted_value,
+                detected=v.extracted_value is not None,
+            )
+            for v in verdicts
+        ],
+        cache_hit=cache_hit,
+    ))
 
     return VerificationResult(
         image_filename=filename,
@@ -288,6 +346,8 @@ def predict_label(
         prompt_version=resolved_version,
         timestamp=datetime.utcnow(),
         prediction_only=True,
+        cache_hit=cache_hit,
+        processing_time_ms=(time.perf_counter() - t_start) * 1000,
     )
 
 
@@ -297,6 +357,7 @@ async def predict_batch(
     prompt_version: str = "latest",
 ) -> BatchVerificationResponse:
     """Extract fields for a batch of label images without comparison."""
+    t_start = time.perf_counter()
     results = []
     for image_bytes, filename, media_type in items:
         result = predict_label(image_bytes, filename, client, media_type, prompt_version)
@@ -310,6 +371,7 @@ async def predict_batch(
     return BatchVerificationResponse(
         results=results, total=len(results),
         passed=passed, warnings=warnings, failed=failed, errors=errors,
+        total_time_ms=(time.perf_counter() - t_start) * 1000,
     )
 
 
@@ -322,6 +384,7 @@ async def verify_batch(
     Verify a batch of labels. Runs sequentially to respect API rate limits
     while keeping the interface async-compatible for FastAPI.
     """
+    t_start = time.perf_counter()
     results = []
     for image_bytes, application, media_type in items:
         result = verify_label(image_bytes, application, client, media_type, prompt_version)
@@ -339,4 +402,5 @@ async def verify_batch(
         warnings=warnings,
         failed=failed,
         errors=errors,
+        total_time_ms=(time.perf_counter() - t_start) * 1000,
     )

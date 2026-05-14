@@ -24,6 +24,8 @@ class VerificationResult(BaseModel):
     timestamp: datetime
     error: Optional[str] = None             # Set if extraction itself failed
     prediction_only: bool = False           # True when no application data is compared
+    cache_hit: bool = False                 # True when response came from the static cache
+    processing_time_ms: Optional[float] = None  # Wall-clock time for this image
 
 
 class BatchVerificationResponse(BaseModel):
@@ -33,3 +35,4 @@ class BatchVerificationResponse(BaseModel):
     warnings: int
     failed: int
     errors: int
+    total_time_ms: Optional[float] = None   # Wall-clock time for the whole batch

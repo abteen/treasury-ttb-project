@@ -12,15 +12,17 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-from app.models.audit import AgentCorrection, AuditSubmission
+from app.models.audit import AgentCorrection, AuditSubmission, PredictionLog
 
 logger = logging.getLogger(__name__)
 
-AUDIT_LOG_PATH = Path(os.getenv("AUDIT_LOG_PATH", "logs/audit.jsonl"))
+AUDIT_LOG_PATH      = Path(os.getenv("AUDIT_LOG_PATH",      "logs/audit.jsonl"))
+PREDICTION_LOG_PATH = Path(os.getenv("PREDICTION_LOG_PATH", "logs/predictions.jsonl"))
 
 
 def _ensure_log_dir() -> None:
     AUDIT_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    PREDICTION_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 
 def log_corrections(submission: AuditSubmission) -> int:
@@ -54,3 +56,20 @@ def log_corrections(submission: AuditSubmission) -> int:
 
     logger.info("Wrote %d audit entries for session %s / %s", written, submission.session_id, submission.image_filename)
     return written
+
+
+def log_prediction(entry: PredictionLog) -> None:
+    """
+    Append one image-level prediction log entry to predictions.jsonl.
+    Each line is a self-contained JSON object suitable for offline eval.
+    """
+    _ensure_log_dir()
+    try:
+        with PREDICTION_LOG_PATH.open("a", encoding="utf-8") as f:
+            f.write(entry.model_dump_json() + "\n")
+        logger.info(
+            "Logged prediction for %s (%d fields, hash=%s…)",
+            entry.image_filename, len(entry.fields), entry.image_hash[:12],
+        )
+    except Exception as exc:
+        logger.error("Failed to write prediction log for %s: %s", entry.image_filename, exc)

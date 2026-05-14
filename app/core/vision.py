@@ -17,7 +17,7 @@ class VisionClient(ABC):
     """Abstract interface for vision-based label extraction."""
 
     @abstractmethod
-    def extract_fields(self, image_bytes: bytes, prompt: str, media_type: str = "image/jpeg") -> dict:
+    def extract_fields(self, image_bytes: bytes, prompt: str, media_type: str = "image/jpeg") -> tuple[dict, str]:
         """
         Extract structured fields from a label image.
 
@@ -27,7 +27,8 @@ class VisionClient(ABC):
             media_type:  MIME type of the image
 
         Returns:
-            dict of extracted field names to values (or None if not found)
+            (parsed_fields, raw_model_output) — the parsed field dict and the
+            raw text the model returned before JSON parsing.
         """
         ...
 
@@ -41,7 +42,7 @@ class VisionClient(ABC):
 class AnthropicVisionClient(VisionClient):
     """Vision extraction via Anthropic Claude."""
 
-    DEFAULT_MODEL = "claude-opus-4-5"
+    DEFAULT_MODEL = "claude-haiku-4-5-20251001"
     MAX_TOKENS = 1024
 
     def __init__(self, model: str | None = None):
@@ -80,11 +81,12 @@ class AnthropicVisionClient(VisionClient):
         )
 
         raw = message.content[0].text.strip()
+        raw_output = raw
         # Strip markdown fences if model wraps output despite instructions
         if raw.startswith("```"):
             raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
 
-        return json.loads(raw)
+        return json.loads(raw), raw_output
 
 
 # ---------------------------------------------------------------------------
