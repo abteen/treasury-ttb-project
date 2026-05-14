@@ -23,6 +23,7 @@ class VerificationResult(BaseModel):
     prompt_version: str
     timestamp: datetime
     error: Optional[str] = None             # Set if extraction itself failed
+    prediction_only: bool = False           # True when no application data is compared
 
 
 class BatchVerificationResponse(BaseModel):

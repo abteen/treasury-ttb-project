@@ -347,6 +347,118 @@
 
   /* ── Divider ── */
   .divider { height: 1px; background: var(--border); margin: 32px 0; }
+
+  /* ── Advanced Options ── */
+  .advanced-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--muted);
+    font-size: 13px;
+    cursor: pointer;
+    user-select: none;
+    margin-top: 20px;
+    background: none;
+    border: none;
+    padding: 0;
+    font-family: var(--sans);
+  }
+  .advanced-toggle:hover { color: var(--text); }
+  .advanced-toggle .toggle-arrow { font-size: 10px; transition: transform .2s; display: inline-block; }
+  .advanced-toggle.open .toggle-arrow { transform: rotate(180deg); }
+  .advanced-panel {
+    display: none;
+    margin-top: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+  }
+  .advanced-panel.open { display: block; }
+  .advanced-panel .adv-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  .adv-checkbox-group {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    justify-content: flex-end;
+    padding-bottom: 2px;
+  }
+  .adv-checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 400;
+    color: var(--text);
+    text-transform: none;
+    letter-spacing: 0;
+    cursor: pointer;
+  }
+  .adv-checkbox-label input[type=checkbox] {
+    width: 15px; height: 15px;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+
+  /* ── Step-1 CSV upload zone ── */
+  .csv-upload-zone {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px 20px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    background: var(--surface);
+    transition: border-color .2s;
+    margin-top: 20px;
+  }
+  .csv-upload-zone.csv-required { border-color: var(--warn); }
+  .csv-upload-zone.csv-has-file { border-color: var(--pass); }
+  .csv-upload-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text);
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .csv-tag {
+    font-size: 11px;
+    font-family: var(--mono);
+    padding: 1px 6px;
+    border-radius: 3px;
+  }
+  .csv-tag-optional { background: rgba(122,128,153,.12); color: var(--muted); }
+  .csv-tag-required { background: var(--warn-bg); color: var(--warn); }
+  .csv-upload-hint { font-size: 12px; color: var(--muted); }
+  .csv-remove-btn {
+    font-size: 12px;
+    color: var(--muted);
+    cursor: pointer;
+    font-family: var(--mono);
+    white-space: nowrap;
+  }
+  .csv-remove-btn:hover { color: var(--fail); }
+  .csv-upload-zone.csv-bypassed { opacity: .4; pointer-events: none; }
+
+  /* ── Result image display ── */
+  .result-image-container {
+    padding: 16px 0 8px;
+    display: flex;
+    justify-content: center;
+  }
+  .result-image-container img {
+    max-width: 100%;
+    max-height: 320px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    object-fit: contain;
+  }
 </style>
 </head>
 <body>
@@ -371,6 +483,57 @@
       <h3>Drop label images here</h3>
       <p>or click to browse files</p>
       <div class="file-chips" id="fileChips"></div>
+    </div>
+
+    <div class="csv-upload-zone" id="csvUploadZone">
+      <div style="flex:1; min-width:0;">
+        <div class="csv-upload-title">
+          Application Data CSV
+          <span class="csv-tag csv-tag-optional" id="csvTag">optional</span>
+        </div>
+        <div class="csv-upload-hint" id="csvUploadHint">Provide application data to skip manual entry</div>
+        <div class="csv-loaded" id="csvUploadLoaded" style="display:none"></div>
+      </div>
+      <div style="display:flex; align-items:center; gap:10px; flex-shrink:0;">
+        <span class="csv-remove-btn" id="csvRemoveBtn" style="display:none">✕ Remove</span>
+        <label class="btn btn-ghost btn-sm" style="cursor:pointer; white-space:nowrap; margin:0;">
+          Choose CSV
+          <input type="file" id="csvUploadInput" accept=".csv,text/csv" style="display:none" />
+        </label>
+      </div>
+    </div>
+    <div id="uploadErrors" style="margin-top:12px"></div>
+
+    <button class="advanced-toggle" id="advancedToggle" type="button">
+      Advanced Options <span class="toggle-arrow">▼</span>
+    </button>
+    <div class="advanced-panel" id="advancedPanel">
+      <div class="adv-grid">
+        <div class="form-group">
+          <label>Backend Model</label>
+          <select id="modelSelect">
+            <option value="claude-opus-4-5">claude-opus-4-5 (Default)</option>
+            <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
+            <option value="claude-opus-4-7">claude-opus-4-7</option>
+            <option value="claude-haiku-4-5-20251001">claude-haiku-4-5</option>
+          </select>
+          <div class="field-hint">Model used for label field extraction</div>
+        </div>
+        <div class="adv-checkbox-group">
+          <label class="adv-checkbox-label">
+            <input type="checkbox" id="showImageCheck" />
+            Display image in results
+          </label>
+          <div class="field-hint">Show label image alongside verification results</div>
+        </div>
+        <div class="form-group" style="grid-column: span 2; border-top: 1px solid var(--border); padding-top: 14px; margin-top: 2px;">
+          <label class="adv-checkbox-label">
+            <input type="checkbox" id="predictionOnlyCheck" />
+            Prediction only
+          </label>
+          <div class="field-hint" style="margin-top:4px;">Extract fields from the label without comparing against application data — skips CSV and form input</div>
+        </div>
+      </div>
     </div>
 
     <div class="actions">
@@ -500,6 +663,9 @@ let isBulk = false;
 let govWarningCanonical = '';
 let sessionId = crypto.randomUUID();
 let lastResults = [];
+let selectedModel = 'claude-opus-4-5';
+let showImage = false;
+let predictionOnly = false;
 
 // ═══════════════════════════════════════════════════════════════════════
 // Init
@@ -514,6 +680,29 @@ let lastResults = [];
     console.warn('Could not fetch constants', e);
   }
 })();
+
+// ═══════════════════════════════════════════════════════════════════════
+// Advanced Options
+// ═══════════════════════════════════════════════════════════════════════
+document.getElementById('advancedToggle').addEventListener('click', () => {
+  document.getElementById('advancedToggle').classList.toggle('open');
+  document.getElementById('advancedPanel').classList.toggle('open');
+});
+
+document.getElementById('modelSelect').addEventListener('change', e => {
+  selectedModel = e.target.value;
+  document.getElementById('modelBadge').textContent = selectedModel;
+});
+
+document.getElementById('showImageCheck').addEventListener('change', e => {
+  showImage = e.target.checked;
+});
+
+document.getElementById('predictionOnlyCheck').addEventListener('change', e => {
+  predictionOnly = e.target.checked;
+  updateCsvZone();
+  updateContinueButton();
+});
 
 // ═══════════════════════════════════════════════════════════════════════
 // Navigation helpers
@@ -546,13 +735,48 @@ function addFiles(files) {
     if (!uploadedFiles.find(u => u.name === f.name)) uploadedFiles.push(f);
   });
   renderChips();
-  btnNext.disabled = uploadedFiles.length === 0;
+  updateCsvZone();
+  updateContinueButton();
 }
 
 function removeFile(name) {
   uploadedFiles = uploadedFiles.filter(f => f.name !== name);
   renderChips();
-  btnNext.disabled = uploadedFiles.length === 0;
+  updateCsvZone();
+  updateContinueButton();
+}
+
+function updateContinueButton() {
+  const hasImages = uploadedFiles.length > 0;
+  const needsCsv  = !predictionOnly && uploadedFiles.length > 1;
+  btnNext.disabled = !hasImages || (needsCsv && !csvFile);
+}
+
+function updateCsvZone() {
+  const zone    = document.getElementById('csvUploadZone');
+  const tag     = document.getElementById('csvTag');
+  const hint    = document.getElementById('csvUploadHint');
+  const loaded  = document.getElementById('csvUploadLoaded');
+  const remove  = document.getElementById('csvRemoveBtn');
+  const mandatory = !predictionOnly && uploadedFiles.length > 1;
+
+  zone.classList.toggle('csv-bypassed', predictionOnly);
+  zone.classList.toggle('csv-required', mandatory && !csvFile);
+  zone.classList.toggle('csv-has-file', !!csvFile);
+
+  tag.className = 'csv-tag ' + (mandatory ? 'csv-tag-required' : 'csv-tag-optional');
+  tag.textContent = mandatory ? 'required' : 'optional';
+
+  if (csvFile) {
+    hint.style.display  = 'none';
+    loaded.style.display = 'block';
+    loaded.textContent  = `✓ ${csvFile.name}`;
+    remove.style.display = 'inline';
+  } else {
+    hint.style.display  = 'block';
+    loaded.style.display = 'none';
+    remove.style.display = 'none';
+  }
 }
 
 function renderChips() {
@@ -566,14 +790,32 @@ function renderChips() {
 }
 
 btnNext.addEventListener('click', () => {
-  isBulk = uploadedFiles.length > 1;
-  if (isBulk) {
-    setupBulkStep();
-    showStep('step-bulk');
+  document.getElementById('uploadErrors').innerHTML = '';
+  if (predictionOnly) {
+    runPrediction();
+  } else if (csvFile) {
+    isBulk = true;
+    runBatchVerification();
   } else {
+    isBulk = false;
     setupSingleStep();
     showStep('step-single');
   }
+});
+
+const csvUploadInput = document.getElementById('csvUploadInput');
+csvUploadInput.addEventListener('change', () => {
+  if (!csvUploadInput.files[0]) return;
+  csvFile = csvUploadInput.files[0];
+  updateCsvZone();
+  updateContinueButton();
+});
+
+document.getElementById('csvRemoveBtn').addEventListener('click', () => {
+  csvFile = null;
+  csvUploadInput.value = '';
+  updateCsvZone();
+  updateContinueButton();
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -610,6 +852,7 @@ document.getElementById('btnSingleVerify').addEventListener('click', async () =>
   fd.append('bottler_address',  document.getElementById('f_bottler_address').value.trim());
   fd.append('country_of_origin',document.getElementById('f_country_of_origin').value.trim());
   fd.append('government_warning',document.getElementById('f_government_warning').value.trim());
+  fd.append('model', selectedModel);
 
   try {
     const res = await fetch('/api/verify/single', { method: 'POST', body: fd });
@@ -658,16 +901,54 @@ csvInput.addEventListener('change', () => {
 
 document.getElementById('btnBulkBack').addEventListener('click', () => showStep('step-upload'));
 
-document.getElementById('btnBulkVerify').addEventListener('click', async () => {
+document.getElementById('btnBulkVerify').addEventListener('click', () => {
   if (!csvFile) { alert('Please upload a CSV file.'); return; }
+  runBatchVerification();
+});
 
+async function runPrediction() {
   showStep('step-processing');
   document.getElementById('processingMsg').textContent =
-    `Processing ${uploadedFiles.length} labels — this may take a moment`;
+    `Extracting fields from ${uploadedFiles.length} label${uploadedFiles.length !== 1 ? 's' : ''}…`;
+
+  try {
+    if (uploadedFiles.length === 1) {
+      const fd = new FormData();
+      fd.append('image', uploadedFiles[0]);
+      fd.append('model', selectedModel);
+      const res  = await fetch('/api/predict/single', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!res.ok) throw new Error(JSON.stringify(data.detail || data));
+      lastResults = [data];
+      renderResults([data], {});
+    } else {
+      const fd = new FormData();
+      uploadedFiles.forEach(f => fd.append('images', f));
+      fd.append('model', selectedModel);
+      const res  = await fetch('/api/predict/batch', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!res.ok) throw new Error(JSON.stringify(data.detail || data));
+      lastResults = data.results;
+      renderResults(data.results, {
+        passed: data.passed, warnings: data.warnings, failed: data.failed
+      });
+    }
+    showStep('step-results');
+  } catch (e) {
+    alert('Extraction error: ' + e.message);
+    showStep('step-upload');
+  }
+}
+
+async function runBatchVerification() {
+  showStep('step-processing');
+  document.getElementById('processingMsg').textContent =
+    `Processing ${uploadedFiles.length} label${uploadedFiles.length !== 1 ? 's' : ''} — this may take a moment`;
 
   const fd = new FormData();
   uploadedFiles.forEach(f => fd.append('images', f));
   fd.append('csv_file', csvFile);
+  fd.append('model', selectedModel);
 
   try {
     const res = await fetch('/api/verify/batch', { method: 'POST', body: fd });
@@ -675,9 +956,12 @@ document.getElementById('btnBulkVerify').addEventListener('click', async () => {
     if (!res.ok) {
       const detail = data.detail || {};
       const errs = [...(detail.pairing_errors || []), ...(detail.csv_errors || [])];
-      document.getElementById('csvErrors').innerHTML =
-        `<div class="banner banner-error"><div><strong>Upload errors:</strong><ul>${errs.map(e=>`<li>${e}</li>`).join('')}</ul></div></div>`;
-      showStep('step-bulk');
+      const errHtml = `<div class="banner banner-error"><div><strong>Upload errors:</strong><ul>${errs.map(e=>`<li>${e}</li>`).join('')}</ul></div></div>`;
+      document.getElementById('uploadErrors').innerHTML = errHtml;
+      // Also keep step-bulk errors in sync if they arrived from there
+      const bulkErrors = document.getElementById('csvErrors');
+      if (bulkErrors) bulkErrors.innerHTML = errHtml;
+      showStep('step-upload');
       return;
     }
     lastResults = data.results;
@@ -687,9 +971,9 @@ document.getElementById('btnBulkVerify').addEventListener('click', async () => {
     showStep('step-results');
   } catch (e) {
     alert('Verification error: ' + e.message);
-    showStep('step-bulk');
+    showStep('step-upload');
   }
-});
+}
 
 // ═══════════════════════════════════════════════════════════════════════
 // Step 4 — Results rendering
@@ -703,14 +987,20 @@ function renderResults(results, summary) {
   subtitle.textContent = `${results.length} label${results.length !== 1 ? 's' : ''} processed`;
 
   const pills = document.getElementById('summaryPills');
+  const isPrediction = results.length > 0 && results[0].prediction_only;
   if (summary.passed !== undefined) {
-    pills.innerHTML = `
-      <span class="pill pill-pass">✓ ${summary.passed} passed</span>
-      <span class="pill pill-warn">⚠ ${summary.warnings} warnings</span>
-      <span class="pill pill-fail">✕ ${summary.failed} failed</span>`;
+    pills.innerHTML = isPrediction
+      ? `<span class="pill pill-pass">✓ ${summary.passed} extracted</span>
+         <span class="pill pill-warn">⚠ ${summary.warnings} partial</span>`
+      : `<span class="pill pill-pass">✓ ${summary.passed} passed</span>
+         <span class="pill pill-warn">⚠ ${summary.warnings} warnings</span>
+         <span class="pill pill-fail">✕ ${summary.failed} failed</span>`;
   } else {
     const r = results[0];
-    pills.innerHTML = `<span class="pill pill-${r.overall_status}">${statusIcon(r.overall_status)} ${r.overall_status}</span>`;
+    const label = isPrediction
+      ? (r.overall_status === 'pass' ? 'extracted' : r.overall_status === 'warning' ? 'partial' : 'failed')
+      : r.overall_status;
+    pills.innerHTML = `<span class="pill pill-${r.overall_status}">${statusIcon(r.overall_status)} ${label}</span>`;
   }
 
   const container = document.getElementById('resultCards');
@@ -733,11 +1023,14 @@ function buildResultCard(result) {
 
   const header = document.createElement('div');
   header.className = 'result-card-header';
+  const cardStatusLabel = result.prediction_only
+    ? (result.overall_status === 'pass' ? 'EXTRACTED' : result.overall_status === 'warning' ? 'PARTIAL' : 'FAILED')
+    : result.overall_status.toUpperCase();
   header.innerHTML = `
     <div class="status-dot dot-${result.overall_status}"></div>
     <div class="card-filename">${result.image_filename}</div>
     <div class="card-status ${result.overall_status}">
-      ${statusIcon(result.overall_status)} ${result.overall_status.toUpperCase()}
+      ${statusIcon(result.overall_status)} ${cardStatusLabel}
     </div>
     <div class="card-chevron">▼</div>`;
   header.addEventListener('click', () => {
@@ -748,17 +1041,33 @@ function buildResultCard(result) {
   const body = document.createElement('div');
   body.className = 'result-card-body';
 
+  if (showImage) {
+    const matchingFile = uploadedFiles.find(f => f.name === result.image_filename);
+    if (matchingFile) {
+      const imgContainer = document.createElement('div');
+      imgContainer.className = 'result-image-container';
+      const img = document.createElement('img');
+      img.src = URL.createObjectURL(matchingFile);
+      img.alt = result.image_filename;
+      imgContainer.appendChild(img);
+      body.appendChild(imgContainer);
+    }
+  }
+
   if (result.error) {
-    body.innerHTML = `<div class="banner banner-error" style="margin-top:16px">
-      <div><strong>Extraction failed:</strong> ${result.error}</div></div>`;
+    const errBanner = document.createElement('div');
+    errBanner.className = 'banner banner-error';
+    errBanner.style.marginTop = '16px';
+    errBanner.innerHTML = `<div><strong>Extraction failed:</strong> ${result.error}</div>`;
+    body.appendChild(errBanner);
   } else {
     result.fields.forEach(field => {
       body.appendChild(buildFieldRow(result, field));
     });
 
-    // Submit review row (only if there are non-pass fields)
+    // Submit review row (only for verification mode with non-pass fields)
     const actionable = result.fields.filter(f => f.status !== 'pass');
-    if (actionable.length > 0) {
+    if (!result.prediction_only && actionable.length > 0) {
       const submitRow = document.createElement('div');
       submitRow.className = 'submit-review-row';
       const statusMsg = document.createElement('span');
@@ -780,6 +1089,7 @@ function buildResultCard(result) {
   meta.innerHTML = `
     <div class="meta-item">model: <span>${result.model_used}</span></div>
     <div class="meta-item">prompt: <span>${result.prompt_version}</span></div>
+    ${result.prediction_only ? '<div class="meta-item">mode: <span>prediction only</span></div>' : ''}
     <div class="meta-item">at: <span>${new Date(result.timestamp).toLocaleString()}</span></div>`;
 
   card.appendChild(header);
@@ -796,12 +1106,15 @@ function buildFieldRow(result, field) {
   row.dataset.model = result.model_used;
   row.dataset.prompt = result.prompt_version;
 
+  const fieldStatusLabel = result.prediction_only
+    ? (field.status === 'pass' ? 'detected' : 'not detected')
+    : field.status;
   const meta = document.createElement('div');
   meta.className = 'field-meta';
   meta.innerHTML = `
     <div class="field-name">${field.field_label}</div>
     <div class="field-status-badge badge-${field.status}">
-      ${statusIcon(field.status)} ${field.status}
+      ${statusIcon(field.status)} ${fieldStatusLabel}
     </div>`;
 
   const values = document.createElement('div');
@@ -810,19 +1123,22 @@ function buildFieldRow(result, field) {
   const extractedClass = field.status === 'pass' ? '' :
                          field.status === 'warning' ? 'highlight-warn' : 'highlight-fail';
 
+  const appRow = result.prediction_only ? '' : `
+    <div class="value-row">
+      <div class="value-label">Application data</div>
+      <div class="value-text">${field.application_value}</div>
+    </div>`;
+
   values.innerHTML = `
     <div class="value-row">
       <div class="value-label">Detected on label</div>
       <div class="value-text ${extractedClass}">${field.extracted_value ?? '<em style="color:var(--muted)">not detected</em>'}</div>
     </div>
-    <div class="value-row">
-      <div class="value-label">Application data</div>
-      <div class="value-text">${field.application_value}</div>
-    </div>
+    ${appRow}
     ${field.note ? `<div class="value-note ${field.status === 'fail' ? 'fail' : ''}">${field.note}</div>` : ''}`;
 
-  // Agent action area for non-pass fields
-  if (field.status !== 'pass') {
+  // Agent action area only in verification mode
+  if (!result.prediction_only && field.status !== 'pass') {
     const agentDiv = document.createElement('div');
     agentDiv.className = 'agent-action';
 
@@ -930,6 +1246,9 @@ document.getElementById('btnStartOver').addEventListener('click', () => {
   document.getElementById('resultCards').innerHTML = '';
   document.getElementById('summaryPills').innerHTML = '';
   document.getElementById('errorBanner').innerHTML = '';
+  document.getElementById('uploadErrors').innerHTML = '';
+  document.getElementById('csvUploadInput').value = '';
+  updateCsvZone();
   showStep('step-upload');
 });
 </script>

@@ -232,6 +232,87 @@ def verify_label(
     )
 
 
+def predict_label(
+    image_bytes: bytes,
+    filename: str,
+    client: VisionClient,
+    media_type: str = "image/jpeg",
+    prompt_version: str = "latest",
+) -> VerificationResult:
+    """Extract fields from a label image without comparing against application data."""
+    prompt_text, resolved_version = get_prompt("extract", prompt_version)
+
+    try:
+        extracted = client.extract_fields(image_bytes, prompt_text, media_type)
+    except Exception as exc:
+        logger.exception("Vision extraction failed for %s", filename)
+        return VerificationResult(
+            image_filename=filename,
+            overall_status="fail",
+            fields=[],
+            model_used=client.model_name,
+            prompt_version=resolved_version,
+            timestamp=datetime.utcnow(),
+            error=f"Extraction failed: {exc}",
+            prediction_only=True,
+        )
+
+    verdicts = []
+    for field in TTB_REQUIRED_FIELDS:
+        label = FIELD_LABELS.get(field, field.replace("_", " ").title())
+        val = extracted.get(field)
+        if val is not None:
+            verdicts.append(FieldVerdict(field=field, field_label=label,
+                                         extracted_value=val.strip(), application_value="",
+                                         status="pass"))
+        else:
+            verdicts.append(FieldVerdict(field=field, field_label=label,
+                                         extracted_value=None, application_value="",
+                                         status="warning", note="Field not detected on label."))
+
+    for field in TTB_OPTIONAL_FIELDS:
+        val = extracted.get(field)
+        if val is not None:
+            label = FIELD_LABELS.get(field, field.replace("_", " ").title())
+            verdicts.append(FieldVerdict(field=field, field_label=label,
+                                         extracted_value=val.strip(), application_value="",
+                                         status="pass"))
+
+    overall = "warning" if any(v.status == "warning" for v in verdicts) else "pass"
+
+    return VerificationResult(
+        image_filename=filename,
+        overall_status=overall,
+        fields=verdicts,
+        model_used=client.model_name,
+        prompt_version=resolved_version,
+        timestamp=datetime.utcnow(),
+        prediction_only=True,
+    )
+
+
+async def predict_batch(
+    items: list[tuple[bytes, str, str]],  # (image_bytes, filename, media_type)
+    client: VisionClient,
+    prompt_version: str = "latest",
+) -> BatchVerificationResponse:
+    """Extract fields for a batch of label images without comparison."""
+    results = []
+    for image_bytes, filename, media_type in items:
+        result = predict_label(image_bytes, filename, client, media_type, prompt_version)
+        results.append(result)
+
+    passed   = sum(1 for r in results if r.overall_status == "pass")
+    warnings = sum(1 for r in results if r.overall_status == "warning")
+    failed   = sum(1 for r in results if r.overall_status == "fail")
+    errors   = sum(1 for r in results if r.error is not None)
+
+    return BatchVerificationResponse(
+        results=results, total=len(results),
+        passed=passed, warnings=warnings, failed=failed, errors=errors,
+    )
+
+
 async def verify_batch(
     items: list[tuple[bytes, ApplicationData, str]],  # (image_bytes, application, media_type)
     client: VisionClient,

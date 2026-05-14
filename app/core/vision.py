@@ -96,7 +96,7 @@ _BACKENDS: dict[str, type[VisionClient]] = {
 }
 
 
-def get_vision_client(backend: str | None = None) -> VisionClient:
+def get_vision_client(backend: str | None = None, model: str | None = None) -> VisionClient:
     """
     Return a VisionClient for the configured backend.
     Reads VISION_BACKEND env var if backend not supplied explicitly.
@@ -105,4 +105,4 @@ def get_vision_client(backend: str | None = None) -> VisionClient:
     cls = _BACKENDS.get(key)
     if cls is None:
         raise ValueError(f"Unknown vision backend '{key}'. Available: {list(_BACKENDS.keys())}")
-    return cls()
+    return cls(model=model)

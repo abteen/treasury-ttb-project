@@ -10,7 +10,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
 from app.core.constants import GOVERNMENT_WARNING_CANONICAL
-from app.core.verifier import verify_batch, verify_label
+from app.core.verifier import predict_batch, predict_label, verify_batch, verify_label
 from app.core.vision import get_vision_client
 from app.core.prompts.registry import list_prompts
 from app.models.audit import AuditSubmission
@@ -72,6 +72,7 @@ async def verify_single(
     country_of_origin: Annotated[str | None, Form()] = None,
     government_warning: Annotated[str, Form()] = GOVERNMENT_WARNING_CANONICAL,
     prompt_version: Annotated[str, Form()] = "latest",
+    model: Annotated[str | None, Form()] = None,
 ):
     image_bytes = await image.read()
     media_type = _guess_media_type(image.filename or "label.jpg")
@@ -88,7 +89,7 @@ async def verify_single(
         government_warning=government_warning,
     )
 
-    client = get_vision_client()
+    client = get_vision_client(model=model or None)
     result = verify_label(image_bytes, application, client, media_type, prompt_version)
     return result
 
@@ -102,6 +103,7 @@ async def verify_batch_endpoint(
     images: Annotated[list[UploadFile], File(description="Label images")],
     csv_file: Annotated[UploadFile, File(description="Application data CSV")],
     prompt_version: Annotated[str, Form()] = "latest",
+    model: Annotated[str | None, Form()] = None,
 ):
     csv_bytes = await csv_file.read()
     parse_result = parse_csv(csv_bytes)
@@ -132,15 +134,50 @@ async def verify_batch_endpoint(
         media_type = _guess_media_type(fname)
         items.append((image_bytes, app, media_type))
 
-    client = get_vision_client()
+    client = get_vision_client(model=model or None)
     batch_response = await verify_batch(items, client, prompt_version)
 
     # Include any CSV parse warnings in the response
-    response_data = batch_response.model_dump()
+    response_data = batch_response.model_dump(mode="json")
     if parse_result.errors:
         response_data["csv_warnings"] = parse_result.errors
 
     return JSONResponse(content=response_data)
+
+
+# ---------------------------------------------------------------------------
+# Prediction-only endpoints (extract fields, no application data required)
+# ---------------------------------------------------------------------------
+
+@router.post("/predict/single")
+async def predict_single(
+    image: Annotated[UploadFile, File(description="Label image")],
+    prompt_version: Annotated[str, Form()] = "latest",
+    model: Annotated[str | None, Form()] = None,
+):
+    image_bytes = await image.read()
+    media_type = _guess_media_type(image.filename or "label.jpg")
+    filename = image.filename or "label.jpg"
+    client = get_vision_client(model=model or None)
+    result = predict_label(image_bytes, filename, client, media_type, prompt_version)
+    return result
+
+
+@router.post("/predict/batch")
+async def predict_batch_endpoint(
+    images: Annotated[list[UploadFile], File(description="Label images")],
+    prompt_version: Annotated[str, Form()] = "latest",
+    model: Annotated[str | None, Form()] = None,
+):
+    client = get_vision_client(model=model or None)
+    items = []
+    for upload in images:
+        fname = upload.filename or "unknown.jpg"
+        image_bytes = await upload.read()
+        media_type = _guess_media_type(fname)
+        items.append((image_bytes, fname, media_type))
+    batch_response = await predict_batch(items, client, prompt_version)
+    return JSONResponse(content=batch_response.model_dump(mode="json"))
 
 
 # ---------------------------------------------------------------------------
