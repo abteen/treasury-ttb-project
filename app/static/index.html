@@ -1,0 +1,937 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TTB Label Verifier</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg:        #0f1117;
+    --surface:   #171b26;
+    --border:    #2a2f3d;
+    --border-hi: #3d4459;
+    --text:      #e8eaf0;
+    --muted:     #7a8099;
+    --accent:    #4a7cff;
+    --pass:      #22c55e;
+    --warn:      #f59e0b;
+    --fail:      #ef4444;
+    --pass-bg:   rgba(34,197,94,.08);
+    --warn-bg:   rgba(245,158,11,.08);
+    --fail-bg:   rgba(239,68,68,.08);
+    --radius:    6px;
+    --mono:      'IBM Plex Mono', monospace;
+    --sans:      'IBM Plex Sans', sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  /* ── Header ── */
+  header {
+    border-bottom: 1px solid var(--border);
+    padding: 0 32px;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    position: sticky;
+    top: 0;
+    background: var(--bg);
+    z-index: 100;
+  }
+  .logo-mark {
+    width: 28px; height: 28px;
+    background: var(--accent);
+    border-radius: 4px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono);
+    font-weight: 600;
+    font-size: 13px;
+    color: #fff;
+    flex-shrink: 0;
+  }
+  .logo-text { font-weight: 600; font-size: 15px; letter-spacing: -.01em; }
+  .logo-sub  { color: var(--muted); font-size: 12px; margin-left: 4px; }
+  header .spacer { flex: 1; }
+  .badge {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    padding: 2px 8px;
+    border-radius: 20px;
+  }
+
+  /* ── Layout ── */
+  main { max-width: 960px; margin: 0 auto; padding: 40px 24px 80px; }
+
+  h2 { font-size: 18px; font-weight: 600; margin-bottom: 4px; }
+  p.sub { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+
+  /* ── Steps ── */
+  .step { display: none; }
+  .step.active { display: block; }
+
+  /* ── Upload zone ── */
+  .upload-zone {
+    border: 2px dashed var(--border-hi);
+    border-radius: 10px;
+    padding: 60px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .2s, background .2s;
+    position: relative;
+  }
+  .upload-zone:hover, .upload-zone.dragover {
+    border-color: var(--accent);
+    background: rgba(74,124,255,.04);
+  }
+  .upload-zone input[type=file] {
+    position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+  }
+  .upload-icon { font-size: 36px; margin-bottom: 12px; }
+  .upload-zone h3 { font-size: 16px; font-weight: 500; margin-bottom: 6px; }
+  .upload-zone p  { color: var(--muted); font-size: 13px; }
+  .file-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; justify-content: center; }
+  .chip {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 4px 10px;
+    font-family: var(--mono);
+    font-size: 12px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .chip .remove { cursor: pointer; color: var(--muted); font-size: 14px; line-height: 1; }
+  .chip .remove:hover { color: var(--fail); }
+
+  /* ── Buttons ── */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    padding: 9px 20px;
+    border-radius: var(--radius);
+    font-family: var(--sans);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    transition: opacity .15s, background .15s;
+  }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: #3a6ce8; }
+  .btn-ghost {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--border);
+  }
+  .btn-ghost:hover:not(:disabled) { border-color: var(--border-hi); color: var(--text); }
+  .btn-sm { padding: 5px 12px; font-size: 13px; }
+
+  .actions { display: flex; gap: 10px; margin-top: 28px; }
+
+  /* ── Form ── */
+  .form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  .form-group { display: flex; flex-direction: column; gap: 5px; }
+  .form-group.span2 { grid-column: span 2; }
+  label { font-size: 12px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  input[type=text], textarea, select {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 14px;
+    padding: 8px 12px;
+    width: 100%;
+    transition: border-color .15s;
+    outline: none;
+  }
+  input[type=text]:focus, textarea:focus, select:focus { border-color: var(--accent); }
+  textarea { resize: vertical; min-height: 80px; font-family: var(--mono); font-size: 12px; line-height: 1.6; }
+  .field-hint { font-size: 11px; color: var(--muted); margin-top: 3px; }
+
+  /* ── Image preview strip ── */
+  .preview-strip {
+    display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 24px;
+  }
+  .preview-thumb {
+    width: 72px; height: 72px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    object-fit: cover;
+    background: var(--surface);
+  }
+  .preview-label {
+    font-family: var(--mono); font-size: 11px; color: var(--muted);
+    margin-top: 4px; max-width: 72px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .preview-item { display: flex; flex-direction: column; align-items: center; }
+
+  /* ── CSV upload ── */
+  .csv-zone {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    display: flex; align-items: center; justify-content: space-between;
+    background: var(--surface);
+  }
+  .csv-zone p { color: var(--muted); font-size: 13px; }
+  .csv-loaded { color: var(--pass); font-size: 13px; font-family: var(--mono); }
+
+  /* ── Processing ── */
+  .processing {
+    text-align: center; padding: 60px 24px;
+  }
+  .spinner {
+    width: 40px; height: 40px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+    margin: 0 auto 20px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .processing p { color: var(--muted); font-size: 14px; }
+
+  /* ── Results ── */
+  .results-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 24px;
+  }
+  .summary-pills { display: flex; gap: 8px; }
+  .pill {
+    font-family: var(--mono); font-size: 12px; font-weight: 500;
+    padding: 3px 10px; border-radius: 20px;
+  }
+  .pill-pass { background: var(--pass-bg); color: var(--pass); }
+  .pill-warn { background: var(--warn-bg); color: var(--warn); }
+  .pill-fail { background: var(--fail-bg); color: var(--fail); }
+
+  /* Label result card */
+  .result-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 20px;
+    overflow: hidden;
+  }
+  .result-card-header {
+    padding: 16px 20px;
+    display: flex; align-items: center; gap: 12px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    user-select: none;
+  }
+  .result-card-header:hover { background: rgba(255,255,255,.02); }
+  .status-dot {
+    width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+  }
+  .dot-pass { background: var(--pass); }
+  .dot-warn { background: var(--warn); }
+  .dot-fail { background: var(--fail); }
+  .card-filename { font-family: var(--mono); font-size: 13px; flex: 1; }
+  .card-status { font-size: 12px; font-weight: 500; }
+  .card-status.pass { color: var(--pass); }
+  .card-status.warning { color: var(--warn); }
+  .card-status.fail { color: var(--fail); }
+  .card-chevron { color: var(--muted); font-size: 12px; transition: transform .2s; }
+  .card-chevron.open { transform: rotate(180deg); }
+
+  .result-card-body { display: none; padding: 0 20px 20px; }
+  .result-card-body.open { display: block; }
+
+  /* Field rows */
+  .field-row {
+    padding: 14px 0;
+    border-bottom: 1px solid var(--border);
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: 12px;
+    align-items: start;
+  }
+  .field-row:last-child { border-bottom: none; }
+  .field-meta { display: flex; flex-direction: column; gap: 4px; }
+  .field-name { font-size: 12px; font-weight: 500; color: var(--muted); }
+  .field-status-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 11px; font-family: var(--mono);
+    padding: 2px 7px; border-radius: 3px;
+    width: fit-content;
+  }
+  .badge-pass { background: var(--pass-bg); color: var(--pass); }
+  .badge-warn { background: var(--warn-bg); color: var(--warn); }
+  .badge-fail { background: var(--fail-bg); color: var(--fail); }
+
+  .field-values { display: flex; flex-direction: column; gap: 8px; }
+  .value-row { display: flex; flex-direction: column; gap: 2px; }
+  .value-label { font-size: 11px; color: var(--muted); }
+  .value-text {
+    font-family: var(--mono); font-size: 12px;
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 4px; padding: 6px 10px;
+    line-height: 1.5; word-break: break-word;
+  }
+  .value-text.highlight-fail { border-color: var(--fail); background: var(--fail-bg); }
+  .value-text.highlight-warn { border-color: var(--warn); background: var(--warn-bg); }
+  .value-note { font-size: 12px; color: var(--warn); margin-top: 2px; }
+  .value-note.fail { color: var(--fail); }
+
+  /* Agent action area */
+  .agent-action {
+    margin-top: 10px;
+    padding: 10px 12px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: var(--bg);
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .agent-action label {
+    font-size: 12px; color: var(--muted);
+    text-transform: none; letter-spacing: 0; font-weight: 400;
+    display: flex; align-items: center; gap: 6px; cursor: pointer;
+  }
+  .agent-action input[type=checkbox] { width: 14px; height: 14px; accent-color: var(--pass); cursor: pointer; }
+  .correction-input { margin-top: 4px; }
+  .correction-input input {
+    font-family: var(--mono); font-size: 12px;
+  }
+  .correction-note { font-size: 11px; color: var(--muted); }
+
+  .submit-review-row {
+    display: flex; justify-content: flex-end; gap: 10px;
+    margin-top: 16px; padding-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+  .submit-status { font-size: 12px; color: var(--pass); display: none; }
+  .submit-status.visible { display: block; }
+
+  /* ── Error / info banners ── */
+  .banner {
+    border-radius: var(--radius);
+    padding: 12px 16px;
+    font-size: 13px;
+    margin-bottom: 16px;
+    display: flex; align-items: flex-start; gap: 10px;
+  }
+  .banner-error { background: var(--fail-bg); border: 1px solid rgba(239,68,68,.25); color: #fca5a5; }
+  .banner-info  { background: rgba(74,124,255,.08); border: 1px solid rgba(74,124,255,.25); color: #93b4ff; }
+  .banner ul { margin: 6px 0 0 18px; }
+  .banner li { margin-bottom: 3px; }
+
+  /* ── Metadata footer on cards ── */
+  .card-meta {
+    display: flex; gap: 16px; flex-wrap: wrap;
+    padding: 12px 20px;
+    border-top: 1px solid var(--border);
+    background: rgba(0,0,0,.15);
+  }
+  .meta-item { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .meta-item span { color: var(--text); }
+
+  /* ── Divider ── */
+  .divider { height: 1px; background: var(--border); margin: 32px 0; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo-mark">TTB</div>
+  <div class="logo-text">Label Verifier <span class="logo-sub">Compliance Review System</span></div>
+  <div class="spacer"></div>
+  <span class="badge" id="modelBadge">claude-opus-4-5</span>
+</header>
+
+<main>
+
+  <!-- ═══ STEP 1: Upload Images ═══ -->
+  <div class="step active" id="step-upload">
+    <h2>Upload Label Images</h2>
+    <p class="sub">Upload one or more label images to begin verification. Supports JPG, PNG, WebP.</p>
+
+    <div class="upload-zone" id="uploadZone">
+      <input type="file" id="imageInput" accept="image/*" multiple />
+      <div class="upload-icon">📋</div>
+      <h3>Drop label images here</h3>
+      <p>or click to browse files</p>
+      <div class="file-chips" id="fileChips"></div>
+    </div>
+
+    <div class="actions">
+      <button class="btn btn-primary" id="btnUploadNext" disabled>
+        Continue →
+      </button>
+    </div>
+  </div>
+
+  <!-- ═══ STEP 2A: Single label form ═══ -->
+  <div class="step" id="step-single">
+    <h2>Application Data</h2>
+    <p class="sub">Enter the application data for this label submission.</p>
+
+    <div class="preview-strip" id="singlePreview"></div>
+
+    <div class="form-grid" id="singleForm">
+      <div class="form-group">
+        <label>Brand Name *</label>
+        <input type="text" id="f_brand_name" placeholder="e.g. OLD TOM DISTILLERY" />
+      </div>
+      <div class="form-group">
+        <label>Class / Type *</label>
+        <input type="text" id="f_class_type" placeholder="e.g. Kentucky Straight Bourbon Whiskey" />
+      </div>
+      <div class="form-group">
+        <label>Alcohol Content (ABV) *</label>
+        <input type="text" id="f_abv" placeholder="e.g. 45% Alc./Vol. (90 Proof)" />
+      </div>
+      <div class="form-group">
+        <label>Net Contents *</label>
+        <input type="text" id="f_net_contents" placeholder="e.g. 750 mL" />
+      </div>
+      <div class="form-group">
+        <label>Bottler / Producer Name *</label>
+        <input type="text" id="f_bottler_name" placeholder="e.g. Old Tom Distillery LLC" />
+      </div>
+      <div class="form-group">
+        <label>Country of Origin</label>
+        <input type="text" id="f_country_of_origin" placeholder="Leave blank if domestic" />
+      </div>
+      <div class="form-group span2">
+        <label>Bottler / Producer Address *</label>
+        <input type="text" id="f_bottler_address" placeholder="e.g. 123 Barrel Lane, Louisville, KY 40201" />
+      </div>
+      <div class="form-group span2">
+        <label>Government Warning Statement *</label>
+        <textarea id="f_government_warning"></textarea>
+        <div class="field-hint">Pre-filled with TTB canonical text. Edit only if the application uses different wording.</div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="btn btn-ghost" id="btnSingleBack">← Back</button>
+      <button class="btn btn-primary" id="btnSingleVerify">Run Verification</button>
+    </div>
+  </div>
+
+  <!-- ═══ STEP 2B: Bulk CSV upload ═══ -->
+  <div class="step" id="step-bulk">
+    <h2>Application Data — Bulk Upload</h2>
+    <p class="sub">You've uploaded <strong id="bulkImageCount">0</strong> images. Upload a CSV with application data for each.</p>
+
+    <div class="banner banner-info">
+      <div>
+        <strong>CSV format:</strong> filename, brand_name, class_type, abv, net_contents, bottler_name, bottler_address, country_of_origin (optional), government_warning (optional — TTB canonical used if blank)<br/>
+        The <code>filename</code> column must exactly match each uploaded image filename.
+      </div>
+    </div>
+
+    <div class="preview-strip" id="bulkPreview"></div>
+
+    <div class="csv-zone">
+      <div>
+        <p id="csvStatus">No CSV uploaded yet</p>
+        <p id="csvLoaded" class="csv-loaded" style="display:none"></p>
+      </div>
+      <label class="btn btn-ghost btn-sm" style="cursor:pointer">
+        Choose CSV <input type="file" id="csvInput" accept=".csv,text/csv" style="display:none" />
+      </label>
+    </div>
+
+    <div id="csvErrors" style="margin-top:12px"></div>
+
+    <div class="actions">
+      <button class="btn btn-ghost" id="btnBulkBack">← Back</button>
+      <button class="btn btn-primary" id="btnBulkVerify" disabled>Run Verification</button>
+    </div>
+  </div>
+
+  <!-- ═══ STEP 3: Processing ═══ -->
+  <div class="step" id="step-processing">
+    <div class="processing">
+      <div class="spinner"></div>
+      <h3 style="margin-bottom:8px">Analysing Labels…</h3>
+      <p id="processingMsg">Extracting fields and running compliance checks</p>
+    </div>
+  </div>
+
+  <!-- ═══ STEP 4: Results ═══ -->
+  <div class="step" id="step-results">
+    <div class="results-header">
+      <div>
+        <h2>Verification Results</h2>
+        <p class="sub" id="resultsSubtitle"></p>
+      </div>
+      <div class="summary-pills" id="summaryPills"></div>
+    </div>
+
+    <div id="errorBanner"></div>
+    <div id="resultCards"></div>
+
+    <div class="actions">
+      <button class="btn btn-ghost" id="btnStartOver">Start New Batch</button>
+    </div>
+  </div>
+
+</main>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════
+// State
+// ═══════════════════════════════════════════════════════════════════════
+let uploadedFiles = [];     // File objects
+let csvFile = null;
+let isBulk = false;
+let govWarningCanonical = '';
+let sessionId = crypto.randomUUID();
+let lastResults = [];
+
+// ═══════════════════════════════════════════════════════════════════════
+// Init
+// ═══════════════════════════════════════════════════════════════════════
+(async () => {
+  try {
+    const res = await fetch('/api/constants');
+    const data = await res.json();
+    govWarningCanonical = data.government_warning_canonical;
+    document.getElementById('f_government_warning').value = govWarningCanonical;
+  } catch (e) {
+    console.warn('Could not fetch constants', e);
+  }
+})();
+
+// ═══════════════════════════════════════════════════════════════════════
+// Navigation helpers
+// ═══════════════════════════════════════════════════════════════════════
+function showStep(id) {
+  document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Step 1 — Image upload
+// ═══════════════════════════════════════════════════════════════════════
+const imageInput  = document.getElementById('imageInput');
+const uploadZone  = document.getElementById('uploadZone');
+const fileChips   = document.getElementById('fileChips');
+const btnNext     = document.getElementById('btnUploadNext');
+
+imageInput.addEventListener('change', () => addFiles([...imageInput.files]));
+
+uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('dragover'); });
+uploadZone.addEventListener('dragleave', ()  => uploadZone.classList.remove('dragover'));
+uploadZone.addEventListener('drop', e => {
+  e.preventDefault();
+  uploadZone.classList.remove('dragover');
+  addFiles([...e.dataTransfer.files].filter(f => f.type.startsWith('image/')));
+});
+
+function addFiles(files) {
+  files.forEach(f => {
+    if (!uploadedFiles.find(u => u.name === f.name)) uploadedFiles.push(f);
+  });
+  renderChips();
+  btnNext.disabled = uploadedFiles.length === 0;
+}
+
+function removeFile(name) {
+  uploadedFiles = uploadedFiles.filter(f => f.name !== name);
+  renderChips();
+  btnNext.disabled = uploadedFiles.length === 0;
+}
+
+function renderChips() {
+  fileChips.innerHTML = '';
+  uploadedFiles.forEach(f => {
+    const chip = document.createElement('div');
+    chip.className = 'chip';
+    chip.innerHTML = `${f.name} <span class="remove" onclick="removeFile('${f.name}')">✕</span>`;
+    fileChips.appendChild(chip);
+  });
+}
+
+btnNext.addEventListener('click', () => {
+  isBulk = uploadedFiles.length > 1;
+  if (isBulk) {
+    setupBulkStep();
+    showStep('step-bulk');
+  } else {
+    setupSingleStep();
+    showStep('step-single');
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Step 2A — Single form
+// ═══════════════════════════════════════════════════════════════════════
+function setupSingleStep() {
+  const preview = document.getElementById('singlePreview');
+  preview.innerHTML = '';
+  const f = uploadedFiles[0];
+  const url = URL.createObjectURL(f);
+  preview.innerHTML = `
+    <div class="preview-item">
+      <img class="preview-thumb" src="${url}" />
+      <div class="preview-label">${f.name}</div>
+    </div>`;
+}
+
+document.getElementById('btnSingleBack').addEventListener('click', () => showStep('step-upload'));
+
+document.getElementById('btnSingleVerify').addEventListener('click', async () => {
+  const required = ['f_brand_name','f_class_type','f_abv','f_net_contents','f_bottler_name','f_bottler_address'];
+  const missing = required.filter(id => !document.getElementById(id).value.trim());
+  if (missing.length) { alert('Please fill all required fields.'); return; }
+
+  showStep('step-processing');
+
+  const fd = new FormData();
+  fd.append('image', uploadedFiles[0]);
+  fd.append('brand_name',       document.getElementById('f_brand_name').value.trim());
+  fd.append('class_type',       document.getElementById('f_class_type').value.trim());
+  fd.append('abv',              document.getElementById('f_abv').value.trim());
+  fd.append('net_contents',     document.getElementById('f_net_contents').value.trim());
+  fd.append('bottler_name',     document.getElementById('f_bottler_name').value.trim());
+  fd.append('bottler_address',  document.getElementById('f_bottler_address').value.trim());
+  fd.append('country_of_origin',document.getElementById('f_country_of_origin').value.trim());
+  fd.append('government_warning',document.getElementById('f_government_warning').value.trim());
+
+  try {
+    const res = await fetch('/api/verify/single', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(JSON.stringify(data.detail || data));
+    lastResults = [data];
+    renderResults([data], {});
+    showStep('step-results');
+  } catch (e) {
+    alert('Verification error: ' + e.message);
+    showStep('step-single');
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Step 2B — Bulk
+// ═══════════════════════════════════════════════════════════════════════
+function setupBulkStep() {
+  document.getElementById('bulkImageCount').textContent = uploadedFiles.length;
+  const preview = document.getElementById('bulkPreview');
+  preview.innerHTML = '';
+  uploadedFiles.forEach(f => {
+    const url = URL.createObjectURL(f);
+    preview.innerHTML += `
+      <div class="preview-item">
+        <img class="preview-thumb" src="${url}" />
+        <div class="preview-label">${f.name}</div>
+      </div>`;
+  });
+  csvFile = null;
+  document.getElementById('csvLoaded').style.display = 'none';
+  document.getElementById('csvStatus').style.display = 'block';
+  document.getElementById('btnBulkVerify').disabled = true;
+}
+
+const csvInput = document.getElementById('csvInput');
+csvInput.addEventListener('change', () => {
+  if (!csvInput.files[0]) return;
+  csvFile = csvInput.files[0];
+  document.getElementById('csvStatus').style.display = 'none';
+  document.getElementById('csvLoaded').style.display = 'block';
+  document.getElementById('csvLoaded').textContent = `✓ ${csvFile.name}`;
+  document.getElementById('csvErrors').innerHTML = '';
+  document.getElementById('btnBulkVerify').disabled = false;
+});
+
+document.getElementById('btnBulkBack').addEventListener('click', () => showStep('step-upload'));
+
+document.getElementById('btnBulkVerify').addEventListener('click', async () => {
+  if (!csvFile) { alert('Please upload a CSV file.'); return; }
+
+  showStep('step-processing');
+  document.getElementById('processingMsg').textContent =
+    `Processing ${uploadedFiles.length} labels — this may take a moment`;
+
+  const fd = new FormData();
+  uploadedFiles.forEach(f => fd.append('images', f));
+  fd.append('csv_file', csvFile);
+
+  try {
+    const res = await fetch('/api/verify/batch', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) {
+      const detail = data.detail || {};
+      const errs = [...(detail.pairing_errors || []), ...(detail.csv_errors || [])];
+      document.getElementById('csvErrors').innerHTML =
+        `<div class="banner banner-error"><div><strong>Upload errors:</strong><ul>${errs.map(e=>`<li>${e}</li>`).join('')}</ul></div></div>`;
+      showStep('step-bulk');
+      return;
+    }
+    lastResults = data.results;
+    renderResults(data.results, {
+      passed: data.passed, warnings: data.warnings, failed: data.failed
+    });
+    showStep('step-results');
+  } catch (e) {
+    alert('Verification error: ' + e.message);
+    showStep('step-bulk');
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Step 4 — Results rendering
+// ═══════════════════════════════════════════════════════════════════════
+function statusIcon(s) {
+  return s === 'pass' ? '✓' : s === 'warning' ? '⚠' : '✕';
+}
+
+function renderResults(results, summary) {
+  const subtitle = document.getElementById('resultsSubtitle');
+  subtitle.textContent = `${results.length} label${results.length !== 1 ? 's' : ''} processed`;
+
+  const pills = document.getElementById('summaryPills');
+  if (summary.passed !== undefined) {
+    pills.innerHTML = `
+      <span class="pill pill-pass">✓ ${summary.passed} passed</span>
+      <span class="pill pill-warn">⚠ ${summary.warnings} warnings</span>
+      <span class="pill pill-fail">✕ ${summary.failed} failed</span>`;
+  } else {
+    const r = results[0];
+    pills.innerHTML = `<span class="pill pill-${r.overall_status}">${statusIcon(r.overall_status)} ${r.overall_status}</span>`;
+  }
+
+  const container = document.getElementById('resultCards');
+  container.innerHTML = '';
+
+  results.forEach(result => {
+    const card = buildResultCard(result);
+    container.appendChild(card);
+    // Auto-open if single result or has issues
+    if (results.length === 1 || result.overall_status !== 'pass') {
+      card.querySelector('.result-card-body').classList.add('open');
+      card.querySelector('.card-chevron').classList.add('open');
+    }
+  });
+}
+
+function buildResultCard(result) {
+  const card = document.createElement('div');
+  card.className = 'result-card';
+
+  const header = document.createElement('div');
+  header.className = 'result-card-header';
+  header.innerHTML = `
+    <div class="status-dot dot-${result.overall_status}"></div>
+    <div class="card-filename">${result.image_filename}</div>
+    <div class="card-status ${result.overall_status}">
+      ${statusIcon(result.overall_status)} ${result.overall_status.toUpperCase()}
+    </div>
+    <div class="card-chevron">▼</div>`;
+  header.addEventListener('click', () => {
+    body.classList.toggle('open');
+    header.querySelector('.card-chevron').classList.toggle('open');
+  });
+
+  const body = document.createElement('div');
+  body.className = 'result-card-body';
+
+  if (result.error) {
+    body.innerHTML = `<div class="banner banner-error" style="margin-top:16px">
+      <div><strong>Extraction failed:</strong> ${result.error}</div></div>`;
+  } else {
+    result.fields.forEach(field => {
+      body.appendChild(buildFieldRow(result, field));
+    });
+
+    // Submit review row (only if there are non-pass fields)
+    const actionable = result.fields.filter(f => f.status !== 'pass');
+    if (actionable.length > 0) {
+      const submitRow = document.createElement('div');
+      submitRow.className = 'submit-review-row';
+      const statusMsg = document.createElement('span');
+      statusMsg.className = 'submit-status';
+      statusMsg.textContent = '✓ Review submitted';
+      const btn = document.createElement('button');
+      btn.className = 'btn btn-primary btn-sm';
+      btn.textContent = 'Submit Review';
+      btn.addEventListener('click', () => submitReview(result, btn, statusMsg));
+      submitRow.appendChild(statusMsg);
+      submitRow.appendChild(btn);
+      body.appendChild(submitRow);
+    }
+  }
+
+  // Metadata footer
+  const meta = document.createElement('div');
+  meta.className = 'card-meta';
+  meta.innerHTML = `
+    <div class="meta-item">model: <span>${result.model_used}</span></div>
+    <div class="meta-item">prompt: <span>${result.prompt_version}</span></div>
+    <div class="meta-item">at: <span>${new Date(result.timestamp).toLocaleString()}</span></div>`;
+
+  card.appendChild(header);
+  card.appendChild(body);
+  card.appendChild(meta);
+  return card;
+}
+
+function buildFieldRow(result, field) {
+  const row = document.createElement('div');
+  row.className = 'field-row';
+  row.dataset.field = field.field;
+  row.dataset.filename = result.image_filename;
+  row.dataset.model = result.model_used;
+  row.dataset.prompt = result.prompt_version;
+
+  const meta = document.createElement('div');
+  meta.className = 'field-meta';
+  meta.innerHTML = `
+    <div class="field-name">${field.field_label}</div>
+    <div class="field-status-badge badge-${field.status}">
+      ${statusIcon(field.status)} ${field.status}
+    </div>`;
+
+  const values = document.createElement('div');
+  values.className = 'field-values';
+
+  const extractedClass = field.status === 'pass' ? '' :
+                         field.status === 'warning' ? 'highlight-warn' : 'highlight-fail';
+
+  values.innerHTML = `
+    <div class="value-row">
+      <div class="value-label">Detected on label</div>
+      <div class="value-text ${extractedClass}">${field.extracted_value ?? '<em style="color:var(--muted)">not detected</em>'}</div>
+    </div>
+    <div class="value-row">
+      <div class="value-label">Application data</div>
+      <div class="value-text">${field.application_value}</div>
+    </div>
+    ${field.note ? `<div class="value-note ${field.status === 'fail' ? 'fail' : ''}">${field.note}</div>` : ''}`;
+
+  // Agent action area for non-pass fields
+  if (field.status !== 'pass') {
+    const agentDiv = document.createElement('div');
+    agentDiv.className = 'agent-action';
+
+    const checkId = `chk_${result.image_filename}_${field.field}`.replace(/[^a-z0-9_]/gi,'_');
+    const inputId = `inp_${result.image_filename}_${field.field}`.replace(/[^a-z0-9_]/gi,'_');
+
+    agentDiv.innerHTML = `
+      <label>
+        <input type="checkbox" id="${checkId}" class="verify-checkbox"
+          data-field="${field.field}"
+          data-extracted="${field.extracted_value ?? ''}"
+          data-appval="${field.application_value}"
+          data-status="${field.status}" />
+        I have reviewed this field and confirm it is correct
+      </label>
+      <div class="correction-input" id="corr_${checkId}" style="display:none">
+        <div class="value-label" style="margin-bottom:4px">Enter correct detected value:</div>
+        <input type="text" id="${inputId}" class="correction-value"
+          placeholder="What should the label actually say?" />
+        <div class="correction-note">This will be logged for benchmark evaluation.</div>
+      </div>`;
+
+    const checkbox = agentDiv.querySelector('.verify-checkbox');
+    const corrDiv  = agentDiv.querySelector('.correction-input');
+
+    checkbox.addEventListener('change', () => {
+      corrDiv.style.display = checkbox.checked ? 'none' : 'block';
+    });
+
+    // Show correction input by default for fails
+    if (field.status === 'fail') {
+      corrDiv.style.display = 'block';
+    }
+
+    values.appendChild(agentDiv);
+  }
+
+  row.appendChild(meta);
+  row.appendChild(values);
+  return row;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Audit submission
+// ═══════════════════════════════════════════════════════════════════════
+async function submitReview(result, btn, statusMsg) {
+  btn.disabled = true;
+
+  const corrections = [];
+
+  result.fields.filter(f => f.status !== 'pass').forEach(field => {
+    const checkId = `chk_${result.image_filename}_${field.field}`.replace(/[^a-z0-9_]/gi,'_');
+    const inputId = `inp_${result.image_filename}_${field.field}`.replace(/[^a-z0-9_]/gi,'_');
+    const checkbox = document.getElementById(checkId);
+    const inputEl  = document.getElementById(inputId);
+
+    if (checkbox) {
+      const agentAction = checkbox.checked ? 'verified_correct' : 'corrected';
+      corrections.push({
+        field: field.field,
+        extracted_value: field.extracted_value,
+        application_value: field.application_value,
+        status_shown: field.status,
+        agent_action: agentAction,
+        agent_provided_value: agentAction === 'corrected' && inputEl ? inputEl.value.trim() || null : null,
+      });
+    }
+  });
+
+  if (corrections.length === 0) {
+    btn.disabled = false;
+    return;
+  }
+
+  try {
+    await fetch('/api/audit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        session_id: sessionId,
+        image_filename: result.image_filename,
+        model_used: result.model_used,
+        prompt_version: result.prompt_version,
+        corrections,
+      }),
+    });
+    statusMsg.classList.add('visible');
+    btn.textContent = 'Submitted';
+  } catch (e) {
+    btn.disabled = false;
+    alert('Failed to submit review: ' + e.message);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Start over
+// ═══════════════════════════════════════════════════════════════════════
+document.getElementById('btnStartOver').addEventListener('click', () => {
+  uploadedFiles = [];
+  csvFile = null;
+  sessionId = crypto.randomUUID();
+  lastResults = [];
+  document.getElementById('fileChips').innerHTML = '';
+  document.getElementById('btnUploadNext').disabled = true;
+  document.getElementById('resultCards').innerHTML = '';
+  document.getElementById('summaryPills').innerHTML = '';
+  document.getElementById('errorBanner').innerHTML = '';
+  showStep('step-upload');
+});
+</script>
+</body>
+</html>

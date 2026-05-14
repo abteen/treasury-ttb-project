@@ -1,0 +1,261 @@
+"""
+Verification orchestrator.
+Compares vision-extracted label fields against application data
+and produces structured per-field verdicts.
+"""
+import logging
+import re
+import unicodedata
+from datetime import datetime
+
+from app.core.constants import (
+    EXACT_MATCH_FIELDS,
+    FUZZY_MATCH_FIELDS,
+    NUMERIC_FIELDS,
+    TTB_REQUIRED_FIELDS,
+    TTB_OPTIONAL_FIELDS,
+    GOVERNMENT_WARNING_CANONICAL,
+)
+from app.core.prompts.registry import get_prompt
+from app.core.vision import VisionClient
+from app.models.label import ApplicationData
+from app.models.result import BatchVerificationResponse, FieldVerdict, VerificationResult
+
+logger = logging.getLogger(__name__)
+
+FIELD_LABELS = {
+    "brand_name": "Brand Name",
+    "class_type": "Class / Type",
+    "abv": "Alcohol Content (ABV)",
+    "net_contents": "Net Contents",
+    "bottler_name": "Bottler / Producer Name",
+    "bottler_address": "Bottler / Producer Address",
+    "country_of_origin": "Country of Origin",
+    "government_warning": "Government Warning Statement",
+}
+
+
+# ---------------------------------------------------------------------------
+# Text normalisation helpers
+# ---------------------------------------------------------------------------
+
+def _normalise(text: str) -> str:
+    """Collapse whitespace and normalise unicode."""
+    text = unicodedata.normalize("NFKC", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _normalise_numeric(text: str) -> str:
+    """Strip spaces around punctuation and normalise decimals for numeric fields."""
+    text = _normalise(text)
+    text = re.sub(r"\s*%\s*", "%", text)
+    text = re.sub(r"\s*\.\s*", ".", text)
+    return text.lower()
+
+
+def _normalise_fuzzy(text: str) -> str:
+    return _normalise(text).lower()
+
+
+# ---------------------------------------------------------------------------
+# Per-field comparison
+# ---------------------------------------------------------------------------
+
+def _compare_field(
+    field: str,
+    extracted: str | None,
+    application: str | None,
+) -> FieldVerdict:
+    label = FIELD_LABELS.get(field, field.replace("_", " ").title())
+    app_val = application or ""
+
+    if extracted is None:
+        status = "fail" if field in TTB_REQUIRED_FIELDS else "warning"
+        return FieldVerdict(
+            field=field,
+            field_label=label,
+            extracted_value=None,
+            application_value=app_val,
+            status=status,
+            note="Field not detected on label." if field in TTB_REQUIRED_FIELDS else "Optional field not found.",
+        )
+
+    ext_val = extracted.strip()
+
+    # --- Government warning: canonical + application exact match ---
+    if field == "government_warning":
+        ext_norm = _normalise(ext_val)
+        app_norm = _normalise(app_val)
+        canonical_norm = _normalise(GOVERNMENT_WARNING_CANONICAL)
+
+        if ext_norm == app_norm == canonical_norm:
+            return FieldVerdict(field=field, field_label=label, extracted_value=ext_val, application_value=app_val, status="pass")
+
+        if ext_norm == app_norm:
+            # Matches application but not canonical — warn that canonical text differs
+            return FieldVerdict(
+                field=field,
+                field_label=label,
+                extracted_value=ext_val,
+                application_value=app_val,
+                status="warning",
+                note="Matches application but differs from TTB canonical warning text.",
+            )
+
+        if ext_norm == canonical_norm:
+            # Matches canonical but not application — application may have a typo
+            return FieldVerdict(
+                field=field,
+                field_label=label,
+                extracted_value=ext_val,
+                application_value=app_val,
+                status="warning",
+                note="Matches TTB canonical text but differs from application value.",
+            )
+
+        return FieldVerdict(
+            field=field,
+            field_label=label,
+            extracted_value=ext_val,
+            application_value=app_val,
+            status="fail",
+            note="Does not match application value or TTB canonical warning text.",
+        )
+
+    # --- Exact match fields ---
+    if field in EXACT_MATCH_FIELDS:
+        if _normalise(ext_val) == _normalise(app_val):
+            return FieldVerdict(field=field, field_label=label, extracted_value=ext_val, application_value=app_val, status="pass")
+        return FieldVerdict(
+            field=field, field_label=label, extracted_value=ext_val, application_value=app_val,
+            status="fail", note="Exact match required; values differ.",
+        )
+
+    # --- Numeric fields ---
+    if field in NUMERIC_FIELDS:
+        if _normalise_numeric(ext_val) == _normalise_numeric(app_val):
+            return FieldVerdict(field=field, field_label=label, extracted_value=ext_val, application_value=app_val, status="pass")
+        # Check if only formatting differs (e.g. "45 %" vs "45%")
+        digits_ext = re.sub(r"[^\d.]", "", ext_val)
+        digits_app = re.sub(r"[^\d.]", "", app_val)
+        if digits_ext and digits_ext == digits_app:
+            return FieldVerdict(
+                field=field, field_label=label, extracted_value=ext_val, application_value=app_val,
+                status="warning", note="Numeric values match but formatting differs.",
+            )
+        return FieldVerdict(
+            field=field, field_label=label, extracted_value=ext_val, application_value=app_val,
+            status="fail", note="Numeric values do not match.",
+        )
+
+    # --- Fuzzy match fields ---
+    if _normalise(ext_val) == _normalise(app_val):
+        return FieldVerdict(field=field, field_label=label, extracted_value=ext_val, application_value=app_val, status="pass")
+
+    if _normalise_fuzzy(ext_val) == _normalise_fuzzy(app_val):
+        return FieldVerdict(
+            field=field, field_label=label, extracted_value=ext_val, application_value=app_val,
+            status="warning", note="Values match when case is ignored — verify capitalisation.",
+        )
+
+    # Partial containment heuristic
+    if _normalise_fuzzy(ext_val) in _normalise_fuzzy(app_val) or _normalise_fuzzy(app_val) in _normalise_fuzzy(ext_val):
+        return FieldVerdict(
+            field=field, field_label=label, extracted_value=ext_val, application_value=app_val,
+            status="warning", note="Partial match — one value appears to contain the other.",
+        )
+
+    return FieldVerdict(
+        field=field, field_label=label, extracted_value=ext_val, application_value=app_val,
+        status="fail", note="Values do not match.",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Overall status rollup
+# ---------------------------------------------------------------------------
+
+def _rollup_status(verdicts: list[FieldVerdict]) -> str:
+    statuses = {v.status for v in verdicts}
+    if "fail" in statuses:
+        return "fail"
+    if "warning" in statuses:
+        return "warning"
+    return "pass"
+
+
+# ---------------------------------------------------------------------------
+# Public interface
+# ---------------------------------------------------------------------------
+
+def verify_label(
+    image_bytes: bytes,
+    application: ApplicationData,
+    client: VisionClient,
+    media_type: str = "image/jpeg",
+    prompt_version: str = "latest",
+) -> VerificationResult:
+    """
+    Run extraction + verification for a single label image.
+    """
+    prompt_text, resolved_version = get_prompt("extract", prompt_version)
+
+    try:
+        extracted = client.extract_fields(image_bytes, prompt_text, media_type)
+    except Exception as exc:
+        logger.exception("Vision extraction failed for %s", application.filename)
+        return VerificationResult(
+            image_filename=application.filename,
+            overall_status="fail",
+            fields=[],
+            model_used=client.model_name,
+            prompt_version=resolved_version,
+            timestamp=datetime.utcnow(),
+            error=f"Extraction failed: {exc}",
+        )
+
+    all_fields = TTB_REQUIRED_FIELDS + [f for f in TTB_OPTIONAL_FIELDS if getattr(application, f, None)]
+    app_dict = application.model_dump()
+
+    verdicts = [
+        _compare_field(field, extracted.get(field), app_dict.get(field))
+        for field in all_fields
+    ]
+
+    return VerificationResult(
+        image_filename=application.filename,
+        overall_status=_rollup_status(verdicts),
+        fields=verdicts,
+        model_used=client.model_name,
+        prompt_version=resolved_version,
+        timestamp=datetime.utcnow(),
+    )
+
+
+async def verify_batch(
+    items: list[tuple[bytes, ApplicationData, str]],  # (image_bytes, application, media_type)
+    client: VisionClient,
+    prompt_version: str = "latest",
+) -> BatchVerificationResponse:
+    """
+    Verify a batch of labels. Runs sequentially to respect API rate limits
+    while keeping the interface async-compatible for FastAPI.
+    """
+    results = []
+    for image_bytes, application, media_type in items:
+        result = verify_label(image_bytes, application, client, media_type, prompt_version)
+        results.append(result)
+
+    passed = sum(1 for r in results if r.overall_status == "pass")
+    warnings = sum(1 for r in results if r.overall_status == "warning")
+    failed = sum(1 for r in results if r.overall_status == "fail")
+    errors = sum(1 for r in results if r.error is not None)
+
+    return BatchVerificationResponse(
+        results=results,
+        total=len(results),
+        passed=passed,
+        warnings=warnings,
+        failed=failed,
+        errors=errors,
+    )
