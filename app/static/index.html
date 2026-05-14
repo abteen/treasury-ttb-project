@@ -375,18 +375,8 @@
     padding: 16px;
   }
   .advanced-panel.open { display: block; }
-  .advanced-panel .adv-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 16px;
-  }
-  .adv-checkbox-group {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-    justify-content: flex-end;
-    padding-bottom: 2px;
-  }
+  .adv-section { padding: 2px 0; }
+  .adv-section-border { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 14px; }
   .adv-checkbox-label {
     display: flex;
     align-items: center;
@@ -508,31 +498,29 @@
       Advanced Options <span class="toggle-arrow">▼</span>
     </button>
     <div class="advanced-panel" id="advancedPanel">
-      <div class="adv-grid">
-        <div class="form-group">
-          <label>Backend Model</label>
-          <select id="modelSelect">
-            <option value="claude-haiku-4-5-20251001">claude-haiku-4-5 (Default)</option>
-            <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
-            <option value="claude-opus-4-5">claude-opus-4-5</option>
-            <option value="claude-opus-4-7">claude-opus-4-7</option>
-          </select>
-          <div class="field-hint">Model used for label field extraction</div>
-        </div>
-        <div class="adv-checkbox-group">
-          <label class="adv-checkbox-label">
-            <input type="checkbox" id="showImageCheck" />
-            Display image in results
-          </label>
-          <div class="field-hint">Show label image alongside verification results</div>
-        </div>
-        <div class="form-group" style="grid-column: span 2; border-top: 1px solid var(--border); padding-top: 14px; margin-top: 2px;">
-          <label class="adv-checkbox-label">
-            <input type="checkbox" id="predictionOnlyCheck" />
-            Prediction only
-          </label>
-          <div class="field-hint" style="margin-top:4px;">Extract fields from the label without comparing against application data — skips CSV and form input</div>
-        </div>
+      <div class="adv-section form-group">
+        <label>Backend Model</label>
+        <select id="modelSelect" style="max-width:320px;">
+          <option value="claude-haiku-4-5-20251001">claude-haiku-4-5 (Default)</option>
+          <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
+          <option value="claude-opus-4-5">claude-opus-4-5</option>
+          <option value="claude-opus-4-7">claude-opus-4-7</option>
+        </select>
+        <div class="field-hint">Model used for label field extraction</div>
+      </div>
+      <div class="adv-section adv-section-border">
+        <label class="adv-checkbox-label">
+          <input type="checkbox" id="showImageCheck" />
+          Display image in results
+        </label>
+        <div class="field-hint" style="margin-top:4px;">Show label image alongside verification results</div>
+      </div>
+      <div class="adv-section adv-section-border">
+        <label class="adv-checkbox-label">
+          <input type="checkbox" id="predictionOnlyCheck" />
+          Prediction only
+        </label>
+        <div class="field-hint" style="margin-top:4px;">Extract fields from the label without comparing against application data — skips CSV and form input</div>
       </div>
     </div>
 
