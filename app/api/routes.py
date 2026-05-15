@@ -193,9 +193,9 @@ _EXAMPLES_DIR = Path(__file__).parent.parent.parent / "examples"
 async def download_examples():
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for path in sorted(_EXAMPLES_DIR.iterdir()):
+        for path in sorted(_EXAMPLES_DIR.rglob("*")):
             if path.is_file():
-                zf.write(path, path.name)
+                zf.write(path, path.relative_to(_EXAMPLES_DIR))
     return Response(
         content=buf.getvalue(),
         media_type="application/zip",
