@@ -22,6 +22,8 @@ class VerificationResult(BaseModel):
     model_used: str
     prompt_version: str
     timestamp: datetime
+    beverage_type: Optional[str] = None     # Model's classification: malt beverage / wine / distilled spirit
+    log_id: Optional[str] = None            # Shared with PredictionLog.entry_id for cross-log matching
     error: Optional[str] = None             # Set if extraction itself failed
     prediction_only: bool = False           # True when no application data is compared
     cache_hit: bool = False                 # True when response came from the static cache

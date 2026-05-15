@@ -247,6 +247,15 @@
   .dot-warn { background: var(--warn); }
   .dot-fail { background: var(--fail); }
   .card-filename { font-family: var(--mono); font-size: 13px; flex: 1; }
+  .beverage-type-badge {
+    font-size: 11px;
+    font-family: var(--mono);
+    padding: 2px 8px;
+    border-radius: 3px;
+    background: rgba(99,102,241,.12);
+    color: var(--accent);
+    white-space: nowrap;
+  }
   .card-status { font-size: 12px; font-weight: 500; }
   .card-status.pass { color: var(--pass); }
   .card-status.warning { color: var(--warn); }
@@ -308,11 +317,15 @@
     display: flex; align-items: center; gap: 6px; cursor: pointer;
   }
   .agent-action input[type=checkbox] { width: 14px; height: 14px; accent-color: var(--pass); cursor: pointer; }
+  .agent-action input[type=radio]    { width: 14px; height: 14px; accent-color: var(--accent); cursor: pointer; }
+  .agent-detect-question { font-size: 12px; color: var(--text); font-weight: 500; }
   .correction-input { margin-top: 4px; }
   .correction-input input {
     font-family: var(--mono); font-size: 12px;
   }
   .correction-note { font-size: 11px; color: var(--muted); }
+  .cmp-match    { font-size: 11px; color: var(--pass); }
+  .cmp-mismatch { font-size: 11px; color: var(--fail); }
 
   .submit-review-row {
     display: flex; justify-content: flex-end; gap: 10px;
@@ -435,6 +448,7 @@
   }
   .csv-remove-btn:hover { color: var(--fail); }
   .csv-upload-zone.csv-bypassed { opacity: .4; pointer-events: none; }
+  .csv-upload-zone.csv-dragover { border-color: var(--accent); background: rgba(99,102,241,.06); }
 
   /* ── Result image display ── */
   .result-image-container {
@@ -510,7 +524,7 @@
       </div>
       <div class="adv-section adv-section-border">
         <label class="adv-checkbox-label">
-          <input type="checkbox" id="showImageCheck" />
+          <input type="checkbox" id="showImageCheck" checked />
           Display image in results
         </label>
         <div class="field-hint" style="margin-top:4px;">Show label image alongside verification results</div>
@@ -521,6 +535,13 @@
           Prediction only
         </label>
         <div class="field-hint" style="margin-top:4px;">Extract fields from the label without comparing against application data — skips CSV and form input</div>
+      </div>
+      <div class="adv-section adv-section-border" style="display:flex; align-items:center; justify-content:space-between; gap:16px;">
+        <div>
+          <div style="font-size:13px; font-weight:500; color:var(--text);">Example Files</div>
+          <div class="field-hint" style="margin-top:4px;">Sample images and CSV files to test the application</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" id="btnDownloadExamples" style="white-space:nowrap; flex-shrink:0;">⬇ examples.zip</button>
       </div>
     </div>
 
@@ -577,6 +598,7 @@
     <div class="actions">
       <button class="btn btn-ghost" id="btnSingleBack">← Back</button>
       <button class="btn btn-primary" id="btnSingleVerify">Run Verification</button>
+      <button class="btn btn-ghost" id="btnSinglePredictOnly">Prediction Only</button>
     </div>
   </div>
 
@@ -653,7 +675,7 @@ let govWarningCanonical = '';
 let sessionId = crypto.randomUUID();
 let lastResults = [];
 let selectedModel = 'claude-haiku-4-5-20251001';
-let showImage = false;
+let showImage = true;
 let predictionOnly = false;
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -693,6 +715,18 @@ document.getElementById('predictionOnlyCheck').addEventListener('change', e => {
   updateContinueButton();
 });
 
+document.getElementById('btnDownloadExamples').addEventListener('click', async () => {
+  const res = await fetch('/api/examples/download');
+  if (!res.ok) { alert('Failed to download examples.'); return; }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'examples.zip';
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
 // ═══════════════════════════════════════════════════════════════════════
 // Navigation helpers
 // ═══════════════════════════════════════════════════════════════════════
@@ -727,6 +761,10 @@ function addFiles(files) {
   updateCsvZone();
   updateContinueButton();
 }
+
+// Sync UI to initial state (must run after btnNext is declared above)
+updateCsvZone();
+updateContinueButton();
 
 function removeFile(name) {
   uploadedFiles = uploadedFiles.filter(f => f.name !== name);
@@ -807,6 +845,24 @@ document.getElementById('csvRemoveBtn').addEventListener('click', () => {
   updateContinueButton();
 });
 
+const csvUploadZone = document.getElementById('csvUploadZone');
+csvUploadZone.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  if (!csvUploadZone.classList.contains('csv-bypassed')) csvUploadZone.classList.add('csv-dragover');
+});
+csvUploadZone.addEventListener('dragleave', () => csvUploadZone.classList.remove('csv-dragover'));
+csvUploadZone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  csvUploadZone.classList.remove('csv-dragover');
+  if (csvUploadZone.classList.contains('csv-bypassed')) return;
+  const file = Array.from(e.dataTransfer.files).find(f => f.name.endsWith('.csv') || f.type === 'text/csv');
+  if (!file) return;
+  csvFile = file;
+  csvUploadInput.value = '';
+  updateCsvZone();
+  updateContinueButton();
+});
+
 // ═══════════════════════════════════════════════════════════════════════
 // Step 2A — Single form
 // ═══════════════════════════════════════════════════════════════════════
@@ -823,6 +879,14 @@ function setupSingleStep() {
 }
 
 document.getElementById('btnSingleBack').addEventListener('click', () => showStep('step-upload'));
+
+document.getElementById('btnSinglePredictOnly').addEventListener('click', () => {
+  predictionOnly = true;
+  document.getElementById('predictionOnlyCheck').checked = true;
+  updateCsvZone();
+  updateContinueButton();
+  runPrediction();
+});
 
 document.getElementById('btnSingleVerify').addEventListener('click', async () => {
   const required = ['f_brand_name','f_class_type','f_abv','f_net_contents','f_bottler_name','f_bottler_address'];
@@ -1029,6 +1093,7 @@ function buildResultCard(result) {
   header.innerHTML = `
     <div class="status-dot dot-${result.overall_status}"></div>
     <div class="card-filename">${result.image_filename}</div>
+    ${result.beverage_type ? `<div class="beverage-type-badge">${result.beverage_type}</div>` : ''}
     <div class="card-status ${result.overall_status}">
       ${statusIcon(result.overall_status)} ${cardStatusLabel}
     </div>
@@ -1065,9 +1130,7 @@ function buildResultCard(result) {
       body.appendChild(buildFieldRow(result, field));
     });
 
-    // Submit review row (only for verification mode with non-pass fields)
-    const actionable = result.fields.filter(f => f.status !== 'pass');
-    if (!result.prediction_only && actionable.length > 0) {
+    if (result.fields.length > 0) {
       const submitRow = document.createElement('div');
       submitRow.className = 'submit-review-row';
       const statusMsg = document.createElement('span');
@@ -1140,40 +1203,118 @@ function buildFieldRow(result, field) {
     ${appRow}
     ${field.note ? `<div class="value-note ${field.status === 'fail' ? 'fail' : ''}">${field.note}</div>` : ''}`;
 
-  // Agent action area only in verification mode
-  if (!result.prediction_only && field.status !== 'pass') {
+  // Agent action area — every field gets one
+  {
     const agentDiv = document.createElement('div');
     agentDiv.className = 'agent-action';
 
     const checkId = `chk_${result.image_filename}_${field.field}`.replace(/[^a-z0-9_]/gi,'_');
     const inputId = `inp_${result.image_filename}_${field.field}`.replace(/[^a-z0-9_]/gi,'_');
 
-    agentDiv.innerHTML = `
-      <label>
-        <input type="checkbox" id="${checkId}" class="verify-checkbox"
-          data-field="${field.field}"
-          data-extracted="${field.extracted_value ?? ''}"
-          data-appval="${field.application_value}"
-          data-status="${field.status}" />
-        I have reviewed this field and confirm it is correct
-      </label>
-      <div class="correction-input" id="corr_${checkId}" style="display:none">
-        <div class="value-label" style="margin-bottom:4px">Enter correct detected value:</div>
-        <input type="text" id="${inputId}" class="correction-value"
-          placeholder="What should the label actually say?" />
-        <div class="correction-note">This will be logged for benchmark evaluation.</div>
-      </div>`;
+    if (field.extracted_value !== null) {
+      // Detected field (all modes): flag incorrect + optional correction
+      const overrideId  = `ovr_${result.image_filename}_${field.field}`.replace(/[^a-z0-9_]/gi,'_');
+      const markFailId  = `mfail_${result.image_filename}_${field.field}`.replace(/[^a-z0-9_]/gi,'_');
+      const showOverride  = field.status === 'fail' && !result.prediction_only;
+      const showMarkFail  = field.status === 'warning';
+      agentDiv.innerHTML = `
+        <label>
+          <input type="checkbox" id="${checkId}" class="incorrect-check" />
+          The detected text is incorrect
+        </label>
+        <div class="correction-input" id="corr_${checkId}" style="display:none">
+          <input type="text" id="${inputId}" class="correction-value"
+            placeholder="Enter the correct value" />
+          <div id="cmp_${checkId}" class="correction-note"></div>
+        </div>
+        ${showMarkFail ? `<label>
+          <input type="checkbox" id="${markFailId}" class="mark-fail-check" />
+          Mark warning as fail
+        </label>` : ''}
+        ${showOverride ? `<label>
+          <input type="checkbox" id="${overrideId}" class="manual-override-check" />
+          Manual override of mismatching data
+        </label>` : ''}`;
 
-    const checkbox = agentDiv.querySelector('.verify-checkbox');
-    const corrDiv  = agentDiv.querySelector('.correction-input');
+      const checkbox = agentDiv.querySelector(`#${checkId}`);
+      const corrDiv  = agentDiv.querySelector('.correction-input');
+      const inputEl  = agentDiv.querySelector(`#${inputId}`);
+      const cmpDiv   = agentDiv.querySelector(`#cmp_${checkId}`);
+      const normalizeLocal = s => s.trim().toLowerCase().replace(/\s+/g, ' ');
 
-    checkbox.addEventListener('change', () => {
-      corrDiv.style.display = checkbox.checked ? 'none' : 'block';
-    });
+      checkbox.addEventListener('change', () => {
+        corrDiv.style.display = checkbox.checked ? 'block' : 'none';
+        if (checkbox.checked) inputEl.focus();
+      });
 
-    // Show correction input by default for fails
-    if (field.status === 'fail') {
-      corrDiv.style.display = 'block';
+      if (!result.prediction_only && field.application_value) {
+        inputEl.addEventListener('input', () => {
+          const val = inputEl.value.trim();
+          if (!val) { cmpDiv.textContent = ''; cmpDiv.className = 'correction-note'; return; }
+          const matches = normalizeLocal(val) === normalizeLocal(field.application_value);
+          cmpDiv.textContent = matches ? '✓ Matches application data' : '✗ Differs from application data';
+          cmpDiv.className = matches ? 'cmp-match' : 'cmp-mismatch';
+        });
+      }
+
+    } else if (result.prediction_only) {
+      // Prediction-only not-detected: mark as present
+      agentDiv.innerHTML = `
+        <label>
+          <input type="checkbox" id="${checkId}" class="predict-found-check" />
+          Mark as present on label — enter value:
+        </label>
+        <div class="correction-input" id="corr_${checkId}" style="display:none">
+          <input type="text" id="${inputId}" class="correction-value"
+            placeholder="What does the label say for this field?" />
+          <div class="correction-note">This will be logged for manual review.</div>
+        </div>`;
+
+      const checkbox = agentDiv.querySelector(`#${checkId}`);
+      const corrDiv  = agentDiv.querySelector('.correction-input');
+      const inputEl  = agentDiv.querySelector(`#${inputId}`);
+      checkbox.addEventListener('change', () => {
+        corrDiv.style.display = checkbox.checked ? 'block' : 'none';
+        if (checkbox.checked) inputEl.focus();
+      });
+
+    } else {
+      // Verification not-detected: ask whether field exists on the label
+      agentDiv.innerHTML = `
+        <div class="agent-detect-question">Is this field present on the label?</div>
+        <label>
+          <input type="radio" name="det_${checkId}" id="det_absent_${checkId}" value="absent" checked />
+          Not present on this label
+        </label>
+        <label>
+          <input type="radio" name="det_${checkId}" id="det_present_${checkId}" value="present" />
+          Present on this label — enter value:
+        </label>
+        <div class="correction-input" id="corr_${checkId}" style="display:none">
+          <input type="text" id="${inputId}" class="correction-value"
+            placeholder="What does the label say for this field?" />
+          <div id="cmp_${checkId}" class="correction-note"></div>
+        </div>`;
+
+      const presentRadio = agentDiv.querySelector(`#det_present_${checkId}`);
+      const corrDiv = agentDiv.querySelector('.correction-input');
+      const inputEl = agentDiv.querySelector(`#${inputId}`);
+      const cmpDiv  = agentDiv.querySelector(`#cmp_${checkId}`);
+      const normalizeLocal = s => s.trim().toLowerCase().replace(/\s+/g, ' ');
+
+      presentRadio.addEventListener('change', () => { corrDiv.style.display = 'block'; inputEl.focus(); });
+      agentDiv.querySelector(`#det_absent_${checkId}`).addEventListener('change', () => {
+        corrDiv.style.display = 'none';
+        cmpDiv.textContent = '';
+        cmpDiv.className = 'correction-note';
+      });
+      inputEl.addEventListener('input', () => {
+        const val = inputEl.value.trim();
+        if (!val) { cmpDiv.textContent = ''; cmpDiv.className = 'correction-note'; return; }
+        const matches = normalizeLocal(val) === normalizeLocal(field.application_value);
+        cmpDiv.textContent = matches ? '✓ Matches application data' : '✗ Differs from application data';
+        cmpDiv.className = matches ? 'cmp-match' : 'cmp-mismatch';
+      });
     }
 
     values.appendChild(agentDiv);
@@ -1190,31 +1331,67 @@ function buildFieldRow(result, field) {
 async function submitReview(result, btn, statusMsg) {
   btn.disabled = true;
 
-  const corrections = [];
+  const normalize = s => (s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
 
-  result.fields.filter(f => f.status !== 'pass').forEach(field => {
+  // Collect all fields — pass fields get no agent action; non-pass fields carry agent input
+  const allFields = result.fields.map(field => {
     const checkId = `chk_${result.image_filename}_${field.field}`.replace(/[^a-z0-9_]/gi,'_');
     const inputId = `inp_${result.image_filename}_${field.field}`.replace(/[^a-z0-9_]/gi,'_');
-    const checkbox = document.getElementById(checkId);
-    const inputEl  = document.getElementById(inputId);
+    const base = {
+      field: field.field,
+      field_label: field.field_label,
+      extracted_value: field.extracted_value,
+      application_value: field.application_value,
+      status_shown: field.status,
+      agent_action: null,
+      agent_provided_value: null,
+      comparison_result: null,
+    };
 
-    if (checkbox) {
-      const agentAction = checkbox.checked ? 'verified_correct' : 'corrected';
-      corrections.push({
-        field: field.field,
-        extracted_value: field.extracted_value,
-        application_value: field.application_value,
-        status_shown: field.status,
-        agent_action: agentAction,
-        agent_provided_value: agentAction === 'corrected' && inputEl ? inputEl.value.trim() || null : null,
-      });
+    const inputEl = document.getElementById(inputId);
+
+    if (field.extracted_value !== null) {
+      // Detected field: "The detected text is incorrect" checkbox + optional mark-fail / manual override
+      const markFailId = `mfail_${result.image_filename}_${field.field}`.replace(/[^a-z0-9_]/gi,'_');
+      const markFailCheck = document.getElementById(markFailId);
+      if (markFailCheck?.checked) {
+        return { ...base, agent_action: 'marked_fail' };
+      }
+      const overrideId = `ovr_${result.image_filename}_${field.field}`.replace(/[^a-z0-9_]/gi,'_');
+      const overrideCheck = document.getElementById(overrideId);
+      if (overrideCheck?.checked) {
+        return { ...base, agent_action: 'manual_override' };
+      }
+      const checkbox = document.getElementById(checkId);
+      if (checkbox?.checked) {
+        const val = inputEl?.value.trim() || null;
+        const cmpResult = (!result.prediction_only && val && field.application_value)
+          ? (normalize(val) === normalize(field.application_value) ? 'match' : 'mismatch')
+          : null;
+        return { ...base, agent_action: 'corrected', agent_provided_value: val, comparison_result: cmpResult };
+      }
+      return base;
     }
-  });
 
-  if (corrections.length === 0) {
-    btn.disabled = false;
-    return;
-  }
+    if (result.prediction_only) {
+      // Prediction-only not-detected: mark as present checkbox
+      const checkbox = document.getElementById(checkId);
+      if (checkbox?.checked) {
+        return { ...base, agent_action: 'found_on_label', agent_provided_value: inputEl?.value.trim() || null };
+      }
+      return base;
+    }
+
+    // Verification not-detected: radio UI
+    const presentRadio = document.getElementById(`det_present_${checkId}`);
+    if (!presentRadio) return base;
+    const isPresent = presentRadio.checked;
+    const val = isPresent ? (inputEl?.value.trim() || null) : null;
+    const cmpResult = val
+      ? (normalize(val) === normalize(field.application_value) ? 'match' : 'mismatch')
+      : null;
+    return { ...base, agent_action: isPresent ? 'found_on_label' : 'verified_correct', agent_provided_value: val, comparison_result: cmpResult };
+  });
 
   try {
     await fetch('/api/audit', {
@@ -1225,7 +1402,8 @@ async function submitReview(result, btn, statusMsg) {
         image_filename: result.image_filename,
         model_used: result.model_used,
         prompt_version: result.prompt_version,
-        corrections,
+        log_id: result.log_id ?? null,
+        fields: allFields,
       }),
     });
     statusMsg.classList.add('visible');
@@ -1276,6 +1454,8 @@ function exportPredictionCsv() {
 document.getElementById('btnStartOver').addEventListener('click', () => {
   uploadedFiles = [];
   csvFile = null;
+  predictionOnly = false;
+  showImage = true;
   sessionId = crypto.randomUUID();
   lastResults = [];
   document.getElementById('fileChips').innerHTML = '';
@@ -1285,6 +1465,8 @@ document.getElementById('btnStartOver').addEventListener('click', () => {
   document.getElementById('errorBanner').innerHTML = '';
   document.getElementById('uploadErrors').innerHTML = '';
   document.getElementById('csvUploadInput').value = '';
+  document.getElementById('predictionOnlyCheck').checked = false;
+  document.getElementById('showImageCheck').checked = true;
   updateCsvZone();
   showStep('step-upload');
 });

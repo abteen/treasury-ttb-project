@@ -12,6 +12,7 @@ PROMPTS_DIR = Path(__file__).parent
 PROMPT_REGISTRY: dict[str, dict[str, Path]] = {
     "extract": {
         "v1": PROMPTS_DIR / "v1_extract.txt",
+        "v2": PROMPTS_DIR / "v2_extract.txt",
     },
 }
 

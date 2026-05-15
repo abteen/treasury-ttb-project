@@ -1,6 +1,6 @@
 """
 Audit logger.
-Appends agent correction events to an append-only JSONL file.
+Appends human review events to an append-only JSONL file.
 Each line is a self-contained JSON object — easy to load into pandas for eval work.
 
 Trade-off documented: local file storage is fine for a prototype.
@@ -9,10 +9,12 @@ Production deployment should replace this with a proper datastore.
 import json
 import logging
 import os
+import uuid
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
-from app.models.audit import AgentCorrection, AuditSubmission, PredictionLog
+from app.models.audit import AuditEntry, AuditFieldEntry, AuditSubmission, PredictionLog
 
 logger = logging.getLogger(__name__)
 
@@ -25,37 +27,75 @@ def _ensure_log_dir() -> None:
     PREDICTION_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 
+def _lookup_prediction_entry_id(image_filename: str, model_used: str, prompt_version: str) -> Optional[str]:
+    """Scan predictions.jsonl in reverse to find the entry_id for the most recent matching run."""
+    if not PREDICTION_LOG_PATH.exists():
+        return None
+    with PREDICTION_LOG_PATH.open(encoding="utf-8") as f:
+        lines = f.readlines()
+    for line in reversed(lines):
+        try:
+            entry = json.loads(line)
+            if (entry.get("image_filename") == image_filename
+                    and entry.get("model_used") == model_used
+                    and entry.get("prompt_version") == prompt_version):
+                return entry.get("entry_id")
+        except json.JSONDecodeError:
+            continue
+    return None
+
+
 def log_corrections(submission: AuditSubmission) -> int:
     """
-    Write agent correction entries to the audit log.
-    Returns the number of entries written.
+    Write a single per-image audit entry to audit.jsonl.
+    Returns the number of fields that had an explicit agent action.
     """
     _ensure_log_dir()
-    written = 0
 
-    with AUDIT_LOG_PATH.open("a", encoding="utf-8") as f:
-        for correction in submission.corrections:
-            try:
-                entry = AgentCorrection(
-                    session_id=submission.session_id,
-                    image_filename=submission.image_filename,
-                    field=correction["field"],
-                    extracted_value=correction.get("extracted_value"),
-                    application_value=correction.get("application_value", ""),
-                    status_shown=correction["status_shown"],
-                    agent_action=correction["agent_action"],
-                    agent_provided_value=correction.get("agent_provided_value"),
-                    model_used=submission.model_used,
-                    prompt_version=submission.prompt_version,
-                    timestamp=datetime.utcnow(),
-                )
-                f.write(entry.model_dump_json() + "\n")
-                written += 1
-            except Exception as exc:
-                logger.error("Failed to write audit entry for field %s: %s", correction.get("field"), exc)
+    entry_id = (
+        submission.log_id
+        or _lookup_prediction_entry_id(submission.image_filename, submission.model_used, submission.prompt_version)
+        or str(uuid.uuid4())
+    )
 
-    logger.info("Wrote %d audit entries for session %s / %s", written, submission.session_id, submission.image_filename)
-    return written
+    fields = []
+    for f in submission.fields:
+        try:
+            fields.append(AuditFieldEntry(
+                field=f["field"],
+                field_label=f.get("field_label", f["field"]),
+                extracted_value=f.get("extracted_value"),
+                application_value=f.get("application_value", ""),
+                status_shown=f["status_shown"],
+                agent_action=f.get("agent_action"),
+                agent_provided_value=f.get("agent_provided_value"),
+                comparison_result=f.get("comparison_result"),
+            ))
+        except Exception as exc:
+            logger.error("Failed to parse audit field entry for %s: %s", f.get("field"), exc)
+
+    entry = AuditEntry(
+        entry_id=entry_id,
+        session_id=submission.session_id,
+        image_filename=submission.image_filename,
+        model_used=submission.model_used,
+        prompt_version=submission.prompt_version,
+        fields=fields,
+        timestamp=datetime.utcnow(),
+    )
+
+    try:
+        with AUDIT_LOG_PATH.open("a", encoding="utf-8") as f:
+            f.write(entry.model_dump_json() + "\n")
+        actioned = sum(1 for f in fields if f.agent_action is not None)
+        logger.info(
+            "Wrote audit entry for %s / %s (%d total fields, %d actioned)",
+            submission.session_id, submission.image_filename, len(fields), actioned,
+        )
+        return actioned
+    except Exception as exc:
+        logger.error("Failed to write audit entry for %s: %s", submission.image_filename, exc)
+        return 0
 
 
 def log_prediction(entry: PredictionLog) -> None:

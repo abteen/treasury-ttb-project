@@ -240,6 +240,7 @@ def verify_label(
         image_filename=application.filename,
         overall_status=_rollup_status(verdicts),
         fields=verdicts,
+        beverage_type=extracted.get("beverage_type"),
         model_used=client.model_name,
         prompt_version=resolved_version,
         timestamp=datetime.utcnow(),
@@ -256,6 +257,8 @@ def predict_label(
     prompt_version: str = "latest",
 ) -> VerificationResult:
     """Extract fields from a label image without comparing against application data."""
+    import uuid as _uuid
+    log_id = str(_uuid.uuid4())
     t_start = time.perf_counter()
     prompt_text, resolved_version = get_prompt("extract", prompt_version)
 
@@ -272,6 +275,7 @@ def predict_label(
             logger.exception("Vision extraction failed for %s", filename)
             elapsed_ms = (time.perf_counter() - t_start) * 1000
             log_prediction(PredictionLog(
+                entry_id=log_id,
                 image_filename=filename,
                 image_hash=image_hash,
                 model_used=client.model_name,
@@ -285,6 +289,7 @@ def predict_label(
                 image_filename=filename,
                 overall_status="fail",
                 fields=[],
+                log_id=log_id,
                 model_used=client.model_name,
                 prompt_version=resolved_version,
                 timestamp=datetime.utcnow(),
@@ -320,6 +325,7 @@ def predict_label(
     overall = "warning" if any(v.status == "warning" for v in verdicts) else "pass"
 
     log_prediction(PredictionLog(
+        entry_id=log_id,
         image_filename=filename,
         image_hash=image_hash,
         model_used=client.model_name,
@@ -342,6 +348,8 @@ def predict_label(
         image_filename=filename,
         overall_status=overall,
         fields=verdicts,
+        beverage_type=extracted.get("beverage_type"),
+        log_id=log_id,
         model_used=client.model_name,
         prompt_version=resolved_version,
         timestamp=datetime.utcnow(),

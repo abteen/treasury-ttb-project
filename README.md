@@ -1,22 +1,58 @@
 # TTB Label Verifier
 
-AI-powered alcohol label compliance verification prototype for TTB (Alcohol and Tobacco Tax and Trade Bureau) compliance agents.
+A simple prototype which uses a vision language model (VLM) backend to extract specific fields from alcohol labels.
 
 ## Overview
 
-Agents upload label images alongside application data. The system uses a vision model to extract regulated fields from the label, compares them against the submitted application, and returns a per-field verdict: **pass**, **warning**, or **fail**. Agents can review non-passing fields, confirm them as correct, or log the corrected value — all corrections are appended to an audit log for future benchmark evaluation.
+This prototype allows for single label as well as bulk upload. The user first uploads at least one image and an optional CSV file containing the expected field values from the application. If only a single image is uploaded and no CSV is given, the user can input the application data manually, or select a "prediction only" option to just test the extraction process. A CSV must be given for bulk uploads (my assumption is that no one in their right mind would want to manually input this data image-by-image). 
 
----
+In the next step, the app presents the verification results. There are several types of errors: 
+ - Pass : extracted output matches application data (up to normalization)
+ - Warning: For some fields, like ABV, we present a warning in cases where the numeric value matches but the text differs
+ - Fail: If numeric values differ or there is not an exact match for specific fields (like gov warning; in this case, also match application data with hard coded ground truth)
+
+ The main design consideration is that this system should consistently collect data on model errors in order to start creating a benchmark for evaluation. Therefore, when there is a field that does not match, the agent is asked to verify if the extracted label was correct or if not, what the correct value should be. Passing and non-passing fields are logged in order for future analysis and extraction. Additional information like prompt version, backend model, image hash, are also logged. 
+
+ ### Other prototype features include:
+ - Prediction only feature to test extraction
+ - Selecting backend model
+ - Sample files to test various test conditions and edge cases
+
+ ### Requirements from instructions which are addressed:
+ - Simple UI
+ - Capable of bulk upload
+ - Allows for various levels of matching (strict --> fuzzy for form fields) dependent on the field type
+ - Abstracted API call allows for easy switching of model, or if an external API is not to be used, calls to a locally hosted model.
+ - Logging of inference time (<3 sec usually)
+ - Button to download test suite examples
+
+ 
+
+ ### Limitations:
+  - Mainly implemented the common elements across all beverage types
+    - [TTB](https://www.ttb.gov/regulated-commodities/beverage-alcohol/beer/labeling/anatomy-of-a-malt-beverage-label-tool) shows specific formats for some fields like ABV percentage. These could be coded in as additional checks; for now the system just predicts the beverage type which can inform which patterns to use. 
+  - Limitations in the images used for testing
+    - Requirements specify that some images are distorted, poorly lit, etc. 
+    - The system should is designed such that if there are VLM errors in extraction, that the agent can flag these.
+    - Once enough data is collected, an offline evaluation can be used to better select backend models. In the meantime, the system allows for agents to manually override any errors. 
+  - Prototype is totally anonymous
+    - If we want to collect data and calculate agreement rates, match labels to annotators, etc. we would need to incorporate some sort of login/annotator ID system.
+
+
+### Tools used:
+  - System implemented using Claude Code
+  - Simple HTML/JSS frontend, FastAPI backend
+  - Anthropic vision API for processing
+
 
 ## Setup
 
 ### 1. Clone & install
 
 ```bash
-git clone <repo-url>
-cd alcohol-label-verifier
+cd treasury-ttb-project
 python -m venv venv
-source venv/bin/activate   # Windows: venv\Scripts\activate
+source venv/bin/activate
 pip install -r requirements.txt
 ```
 
@@ -32,138 +68,3 @@ cp .env.example .env
 ```bash
 uvicorn app.main:app --reload
 ```
-
-Open [http://localhost:8000](http://localhost:8000)
-
----
-
-## Usage
-
-### Single label
-1. Upload one image → click **Continue**
-2. Fill in application data (Government Warning is pre-filled with TTB canonical text)
-3. Click **Run Verification**
-4. Review results; for any warning/fail fields:
-   - Check **"I have reviewed this field and confirm it is correct"** if the label is acceptable
-   - Or enter the correct detected value in the text field
-5. Click **Submit Review** — corrections are logged to `logs/audit.jsonl`
-
-### Bulk upload
-1. Upload multiple images → click **Continue**
-2. Upload a CSV with application data (see format below)
-3. Click **Run Verification**
-
-#### CSV format
-
-```
-filename,brand_name,class_type,abv,net_contents,bottler_name,bottler_address,country_of_origin,government_warning
-label_001.jpg,OLD TOM DISTILLERY,Kentucky Straight Bourbon Whiskey,...
-```
-
-- `filename` must exactly match the uploaded image filename (case-sensitive)
-- `country_of_origin` — leave blank for domestic products
-- `government_warning` — leave blank to use the TTB canonical text automatically
-
-A sample CSV is provided at `tests/sample_batch.csv`.
-
----
-
-## Architecture
-
-```
-app/
-├── main.py                  # FastAPI app, serves frontend
-├── api/routes.py            # Endpoints: /verify/single, /verify/batch, /audit
-├── core/
-│   ├── vision.py            # Abstracted VisionClient (swap backends here)
-│   ├── verifier.py          # Extraction + comparison logic
-│   ├── constants.py         # TTB canonical values, field classifications
-│   └── prompts/
-│       ├── registry.py      # Prompt version registry
-│       └── v1_extract.txt   # Extraction prompt v1
-├── models/
-│   ├── label.py             # ApplicationData
-│   ├── result.py            # VerificationResult, FieldVerdict
-│   └── audit.py             # AgentCorrection, AuditSubmission
-├── services/
-│   ├── csv_parser.py        # Bulk CSV parsing + validation
-│   └── audit_logger.py      # Appends corrections to logs/audit.jsonl
-└── static/index.html        # Single-page frontend
-```
-
-### Verdict logic
-
-| Status | Meaning |
-|--------|---------|
-| ✅ pass | Extracted value matches application value within field-type rules |
-| ⚠️ warning | Values are close but differ (case, formatting, partial match) — agent reviews |
-| ❌ fail | Clear mismatch, missing required field, or government warning does not match |
-
-Field types:
-- **Exact match**: `government_warning` — must match both the application value *and* the TTB canonical text
-- **Numeric**: `abv`, `net_contents` — numeric values compared; formatting differences produce a warning
-- **Fuzzy**: all other fields — case-insensitive comparison; case differences produce a warning, true mismatches produce a fail
-
-### Adding a new vision backend
-
-1. Implement `VisionClient` ABC in `app/core/vision.py`
-2. Register it in the `_BACKENDS` dict
-3. Set `VISION_BACKEND=your_backend` in `.env`
-
-### Adding a new prompt version
-
-1. Create `app/core/prompts/v2_extract.txt`
-2. Register it in `PROMPT_REGISTRY` in `app/core/prompts/registry.py`
-3. Pass `prompt_version=v2` in API calls or form submissions
-
----
-
-## Audit Log
-
-Corrections are appended to `logs/audit.jsonl` — one JSON object per line.
-
-```json
-{
-  "entry_id": "uuid",
-  "session_id": "uuid",
-  "image_filename": "label_001.jpg",
-  "field": "brand_name",
-  "extracted_value": "Old Tom Distillery",
-  "application_value": "OLD TOM DISTILLERY",
-  "status_shown": "warning",
-  "agent_action": "verified_correct",
-  "agent_provided_value": null,
-  "model_used": "claude-opus-4-5",
-  "prompt_version": "v1",
-  "timestamp": "2025-05-13T..."
-}
-```
-
-Load into pandas for eval work: `pd.read_json('logs/audit.jsonl', lines=True)`
-
----
-
-## Trade-offs & Limitations
-
-| Area | Decision | Production path |
-|------|----------|----------------|
-| **Audit log storage** | Local `audit.jsonl` file | Replace `audit_logger.py` with a database writer |
-| **Agent identity** | Anonymous sessions (UUID per browser session) | Add auth layer; bind session to agent ID |
-| **Batch processing** | Sequential API calls | Parallel with rate-limit-aware concurrency (e.g. `asyncio.Semaphore`) |
-| **COLA integration** | None — standalone prototype | Separate procurement/authorization process required |
-| **Image quality** | Claude handles mild distortion well; severely degraded images may produce null extractions | Add a pre-processing step (deskew, contrast normalisation) |
-| **Network firewall** | Requires outbound HTTPS to `api.anthropic.com` | The Anthropic API endpoint must be whitelisted in production |
-| **AI determinism** | Same label may produce slightly different extraction on retry | Record `prompt_version` + `model_used` on every result; use audit log to identify unstable fields |
-
----
-
-## API Reference
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET`  | `/api/health` | Liveness check |
-| `GET`  | `/api/constants` | TTB canonical values for frontend pre-fill |
-| `GET`  | `/api/prompts` | List available prompt versions |
-| `POST` | `/api/verify/single` | Verify a single label (multipart form) |
-| `POST` | `/api/verify/batch` | Verify multiple labels with CSV (multipart form) |
-| `POST` | `/api/audit` | Submit agent corrections |

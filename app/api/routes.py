@@ -1,13 +1,16 @@
 """
 API routes.
 """
+import io
 import logging
 import mimetypes
 import uuid
+import zipfile
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from app.core.constants import GOVERNMENT_WARNING_CANONICAL
 from app.core.verifier import predict_batch, predict_label, verify_batch, verify_label
@@ -178,6 +181,26 @@ async def predict_batch_endpoint(
         items.append((image_bytes, fname, media_type))
     batch_response = await predict_batch(items, client, prompt_version)
     return JSONResponse(content=batch_response.model_dump(mode="json"))
+
+
+# ---------------------------------------------------------------------------
+# Examples download
+# ---------------------------------------------------------------------------
+
+_EXAMPLES_DIR = Path(__file__).parent.parent.parent / "examples"
+
+@router.get("/examples/download")
+async def download_examples():
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for path in sorted(_EXAMPLES_DIR.iterdir()):
+            if path.is_file():
+                zf.write(path, path.name)
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="examples.zip"'},
+    )
 
 
 # ---------------------------------------------------------------------------
